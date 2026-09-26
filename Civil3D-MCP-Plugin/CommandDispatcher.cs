@@ -171,6 +171,8 @@ public static class CommandDispatcher
       "referenceDataShortcut" => DataShortcutCommands.ReferenceDataShortcutAsync(parameters),
       "syncDataShortcuts" => DataShortcutCommands.SyncDataShortcutsAsync(parameters),
       "createDataShortcutReference" => DataShortcutCommands.CreateDataShortcutReferenceAsync(parameters),
+      "listDataShortcutReferences" => DataShortcutCommands.ListDataShortcutReferencesAsync(parameters),
+      "repairDataShortcutReference" => DataShortcutCommands.RepairDataShortcutReferenceAsync(parameters),
       // Xrefs
       "listXrefs" => XrefCommands.ListXrefsAsync(parameters),
       "attachXref" => XrefCommands.AttachXrefAsync(parameters),
