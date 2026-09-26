@@ -409,6 +409,14 @@ public static class PipeNetworkCommands
 
   private static Dictionary<string, object?> ToPipeData(Pipe pipe, Transaction transaction)
   {
+    var start = pipe.StartPoint;
+    var end = pipe.EndPoint;
+    // The managed Pipe API has no invert property. StartPoint/EndPoint are
+    // centreline points, so invert = centreline - inner height / 2 (inner
+    // height equals the inner diameter for circular pipes).
+    var innerHeight = pipe.InnerHeight > 0 ? pipe.InnerHeight : pipe.InnerDiameterOrWidth;
+    var halfHeight = innerHeight / 2.0;
+
     return new Dictionary<string, object?>
     {
       ["name"] = pipe.Name,
@@ -419,11 +427,26 @@ public static class PipeNetworkCommands
       ["diameter"] = pipe.InnerDiameterOrWidth,
       ["slope"] = pipe.Slope,
       ["material"] = pipe.Material,
-      ["centerlineStartElevation"] = pipe.StartPoint.Z,
-      ["centerlineEndElevation"] = pipe.EndPoint.Z,
+      ["centerlineStartElevation"] = start.Z,
+      ["centerlineEndElevation"] = end.Z,
       ["invertIn"] = null,
       ["invertOut"] = null,
-      ["invertNote"] = "The Civil 3D 2026 managed Pipe API does not expose endpoint invert elevations directly; centerline elevations are returned instead.",
+      ["invertNote"] = "The managed Pipe API does not expose invert elevations directly; startInvert/endInvert are derived as centerline elevation minus innerHeight/2.",
+      // Additive plan/3D geometry (used by the Civil 3D-Revit bridge).
+      ["startPoint"] = new Dictionary<string, object?> { ["x"] = start.X, ["y"] = start.Y, ["z"] = start.Z },
+      ["endPoint"] = new Dictionary<string, object?> { ["x"] = end.X, ["y"] = end.Y, ["z"] = end.Z },
+      ["startInvert"] = start.Z - halfHeight,
+      ["endInvert"] = end.Z - halfHeight,
+      ["startCrown"] = start.Z + halfHeight,
+      ["endCrown"] = end.Z + halfHeight,
+      ["invertSource"] = "centerline - innerHeight/2",
+      ["innerDiameter"] = pipe.InnerDiameterOrWidth,
+      ["outerDiameter"] = pipe.OuterDiameterOrWidth,
+      ["innerHeight"] = innerHeight,
+      ["outerHeight"] = pipe.OuterHeight,
+      ["wallThickness"] = pipe.WallThickness,
+      ["crossSectionalShape"] = pipe.CrossSectionalShape.ToString(),
+      ["length2d"] = pipe.Length2D,
     };
   }
 
