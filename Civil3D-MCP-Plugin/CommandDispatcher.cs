@@ -182,6 +182,10 @@ public static class CommandDispatcher
       "unloadXrefs" => XrefCommands.UnloadXrefsAsync(parameters),
       "bindXrefs" => XrefCommands.BindXrefsAsync(parameters),
       "repathXref" => XrefCommands.RepathXrefAsync(parameters),
+      // Drawing comparison (read-only)
+      "compareDrawings" => CompareCommands.CompareDrawingsAsync(parameters),
+      "writeDrawingSnapshot" => CompareCommands.WriteDrawingSnapshotAsync(parameters),
+      "compareDrawingSnapshot" => CompareCommands.CompareDrawingSnapshotAsync(parameters),
       // Point groups
       "createPointGroup" => PointGroupCommands.CreatePointGroupAsync(parameters),
       "updatePointGroup" => PointGroupCommands.UpdatePointGroupAsync(parameters),

@@ -34,7 +34,8 @@ export type ToolDomain =
   | "catchment"
   | "stm"
   | "plugin"
-  | "xref";
+  | "xref"
+  | "compare";
 
 export type ToolCapability =
   | "query"
