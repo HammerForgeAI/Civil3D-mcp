@@ -165,6 +165,7 @@ For a source-based or Claude Code installation:
 - **Surface analysis** — elevation bands, slope distribution, aspect, watershed, cut/fill volumes
 - **Pipe & pressure network** design, validation, and hydraulic analysis
 - **Plan production** — sheet sets, Plan/Profile sheets, PDF export
+- **Plot / publish** — `civil3d_plot` lists layouts, page setups, and plotters, plots layouts to per-layout PDFs, and publishes a multi-sheet PDF (foreground `-PLOT`/`-PUBLISH`, approval-gated, export-root bounded, optional background job)
 - **QC checks** — alignment, profile, corridor, surface, pipe network, drawing standards
 - **Quantity takeoff** — earthwork, corridor materials, pipe lengths, parcel areas, CSV export
 - **Cost estimation** — pay items, material costs, construction estimates
@@ -690,6 +691,36 @@ one or more operations; alias rows show an em dash in the **Operations** column.
 | `civil3d_sheet_view_create` | Create a viewport/view on a sheet layout |
 | `civil3d_sheet_view_set_scale` | Update the scale of a viewport |
 | `civil3d_plan_profile_sheet_update_alignment` | Update alignment and/or profile on an existing sheet |
+
+</details>
+
+<details>
+<summary><strong>Plot / Publish (1 tool)</strong></summary>
+
+| Tool | Action | Description |
+|------|--------|-------------|
+| `civil3d_plot` | `list_layouts` | Paper-space layouts (optionally Model) with device, paper, orientation, plot style, page setup |
+| `civil3d_plot` | `list_page_setups` | Named page setups in the drawing |
+| `civil3d_plot` | `list_plotters` | Configured plot devices and plot style tables; with `device`, that device's paper sizes |
+| `civil3d_plot` | `plot_layouts_to_pdf` | One PDF per layout (`layoutNames` or `allLayouts`) into `outputDirectory`, or a single layout to `outputPath`; optional `pageSetup`, `paperSize`, `plotStyleTable`, `orientation` |
+| `civil3d_plot` | `publish_sheet_set` | One multi-sheet PDF from `layoutNames`, `sheets` (may include other saved drawings), or every paper-space layout |
+
+Read-only actions are never approval-gated. `plot_layouts_to_pdf` and
+`publish_sheet_set` declare the `export` capability, so they need a
+`civil3d_request_approval` token; output paths must be absolute `.pdf` paths
+under `CIVIL3D_EXPORT_ROOTS` and existing files are only replaced with
+`overwrite: true`. Pass `asJob: true` to run either as a `civil3d_job` and poll
+`civil3d_job action=status`. Results list every file written with its size,
+page count (when detectable), and per-layout status.
+
+Why commands rather than the PlotEngine API: live testing on Civil 3D 2027
+found `PlotFactory`/`PlotEngine` crash-prone when driven from a command
+context (the context this plugin runs in), while `-PLOT` with
+`BACKGROUNDPLOT=0` fails with a message instead of taking the host down. The
+plugin validates every answer before starting the command, never saves page
+setup changes, restores `FILEDIA`/`CMDECHO`/`BACKGROUNDPLOT`/`CTAB`, and
+verifies the PDF was actually written. `publish_sheet_set` reads drawings from
+disk, so it refuses an unsaved active drawing unless `requireSaved: false`.
 
 </details>
 
