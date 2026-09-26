@@ -247,6 +247,20 @@ internal static class FileBoundary
     }
   }
 
+  /// <summary>
+  /// Creates (if needed) and locks the directory chain of an export path that
+  /// was already resolved by <see cref="ResolveExportPath"/>, for writers that
+  /// are not this class (for example the AutoCAD plotter writing a PDF). While
+  /// the returned handle is held, no segment of the chain can be swapped for a
+  /// junction; files can still be created inside it.
+  /// </summary>
+  public static IDisposable LockExportDirectoryForExternalWriter(string resolvedPath)
+  {
+    var directory = Path.GetDirectoryName(resolvedPath)
+      ?? throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "Output path must include a directory.");
+    return LockExportDirectoryChain(directory);
+  }
+
   private static string NormalizeExtension(string extension) =>
     extension.StartsWith('.') ? extension : $".{extension}";
 

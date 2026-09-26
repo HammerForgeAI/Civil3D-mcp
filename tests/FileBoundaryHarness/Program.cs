@@ -37,6 +37,23 @@ try
   FileBoundary.WriteAllTextAtomic(nestedOutput, "replacement", Encoding.UTF8, overwrite: true, ".csv");
   Assert(File.ReadAllText(writtenPath, Encoding.UTF8) == "replacement", "Explicit overwrite did not replace content.");
 
+  // External writers (the AutoCAD plotter) get a created, locked directory
+  // chain for a path that already passed ResolveExportPath.
+  var plotOutput = FileBoundary.ResolveExportPath(
+    Path.Combine(allowedRoot, "plots", "sheets", "C-101.pdf"), overwrite: false, ".pdf");
+  using (FileBoundary.LockExportDirectoryForExternalWriter(plotOutput))
+  {
+    Assert(Directory.Exists(Path.GetDirectoryName(plotOutput)!), "Plot output directory was not created.");
+    File.WriteAllText(plotOutput, "%PDF-1.7");
+    Assert(File.Exists(plotOutput), "A file could not be written inside the locked plot directory.");
+  }
+  ExpectCode(
+    "CIVIL3D.CONFLICT",
+    () => FileBoundary.ResolveExportPath(plotOutput, overwrite: false, ".pdf"));
+  ExpectCode(
+    "CIVIL3D.FILE_TYPE_NOT_ALLOWED",
+    () => FileBoundary.ResolveExportPath(Path.Combine(allowedRoot, "plots", "C-101.dwg"), false, ".pdf"));
+
   var importPath = Path.Combine(allowedRoot, "terrain.dem");
   File.WriteAllText(importPath, "dem-data");
   Assert(FileBoundary.ResolveImportPath(importPath, ".dem") == Path.GetFullPath(importPath), "Allowed import was rejected.");
