@@ -48,6 +48,7 @@ public static class CommandDispatcher
       "copyLayout" => LayoutCommands.CopyLayoutAsync(parameters),
       "renameLayout" => LayoutCommands.RenameLayoutAsync(parameters),
       "deleteLayout" => LayoutCommands.DeleteLayoutAsync(parameters),
+      "setViewportAnnotationScale" => LayoutCommands.SetViewportAnnotationScaleAsync(parameters),
       "listBlockReferences" => AcadCommands.ListBlockReferencesAsync(parameters),
       "listShapeEntities" => AcadCommands.ListShapeEntitiesAsync(parameters),
       "updateTextContent" => AcadCommands.UpdateTextContentAsync(parameters),

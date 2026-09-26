@@ -347,7 +347,7 @@ public static class DimensionViewportCommands
   }
 
   // The layout's own "sheet" viewport shows paper space 1:1 (its view equals its frame).
-  private static bool IsPaperSpaceViewport(Viewport viewport) =>
+  internal static bool IsPaperSpaceViewport(Viewport viewport) =>
     Math.Abs(viewport.ViewHeight - viewport.Height) < 1e-6 &&
     viewport.ViewCenter.GetDistanceTo(new Point2d(viewport.CenterPoint.X, viewport.CenterPoint.Y)) < 1e-6;
 
@@ -410,6 +410,18 @@ public static class DimensionViewportCommands
     return value < 0 ? value + full : value;
   }
 
+  private static string? ViewportAnnotationScaleName(Viewport viewport)
+  {
+    try
+    {
+      return viewport.AnnotationScale?.Name;
+    }
+    catch (Autodesk.AutoCAD.Runtime.Exception)
+    {
+      return null;
+    }
+  }
+
   private static Dictionary<string, object?> BuildViewportEntry(Viewport viewport, string layoutName)
   {
     var paperSpace = IsPaperSpaceViewport(viewport);
@@ -428,6 +440,8 @@ public static class DimensionViewportCommands
       ["viewHeight"] = viewport.ViewHeight,
       ["customScale"] = scale,
       ["scaleLabel"] = !paperSpace && scale > 0 ? $"1\"={Math.Round(1 / scale, 2)}'" : null,
+      // null = the viewport has no annotation scale of its own: annotative dims/MLeaders will not show in it (QC check).
+      ["annotationScale"] = paperSpace ? null : ViewportAnnotationScaleName(viewport),
       ["twistRadians"] = viewport.TwistAngle,
       ["twistDegrees"] = Math.Round(viewport.TwistAngle * 180d / Math.PI, 4),
       ["modelCenterX"] = modelCenter?.X,

@@ -42,6 +42,15 @@ public static class DraftingBatchCommands
         LayoutManager.Current.CurrentLayout = layoutName;
       }
 
+      // Annotative MLeaders/dimensions take their scale from CANNOSCALE of the ACTIVE tab: created from a layout tab they
+      // get `1" = 1'` only and vanish (or blow up x20 once 1:20 is added) in the sheet viewports. Draft them from the Model tab.
+      if (space == "model" && items.OfType<JsonObject>().Any(item =>
+        (PluginRuntime.GetOptionalString(item, "kind")?.Trim().ToLowerInvariant()) is "mleader" or "aligned_dimension")
+        && !LayoutManager.Current.CurrentLayout.Equals("Model", StringComparison.OrdinalIgnoreCase))
+      {
+        LayoutManager.Current.CurrentLayout = "Model";
+      }
+
       var (targetSpace, targetLayoutName) = AcadCommands.ResolveTargetSpace(database, transaction, space, layoutName);
       var layersCreated = EnsureLayers(database, transaction, layerDefinitions);
       var created = new List<Dictionary<string, object?>>();
@@ -104,7 +113,7 @@ public static class DraftingBatchCommands
           };
           if (entity is Viewport viewport)
           {
-            result["on"] = ConfigureViewport(viewport, item);
+            result["on"] = ConfigureViewport(database, viewport, item);
           }
 
           created.Add(result);
@@ -350,7 +359,61 @@ public static class DraftingBatchCommands
       mtext.Attachment = (AttachmentPoint)attachment.Value;
     }
 
+    ApplyMTextMask(mtext, item);
     return mtext;
+  }
+
+  // Background mask (MTEXT group 90=3, 45=scale): the fill uses the drawing background, so street/subject labels stay legible
+  // over hatches and linework (the X-TOPO asphalt fill otherwise covers them). backgroundScale 1.2 = street labels, 1.0 = subject.
+  internal static void ApplyMTextMask(MText mtext, JsonObject item)
+  {
+    var mask = PluginRuntime.GetOptionalBool(item, "backgroundMask");
+    if (mask == null)
+    {
+      return;
+    }
+
+    if (mask.Value)
+    {
+      mtext.BackgroundFill = true;
+      mtext.UseBackgroundColor = true;
+      mtext.BackgroundScaleFactor = PluginRuntime.GetOptionalDouble(item, "backgroundScale") ?? 1.2d;
+    }
+    else
+    {
+      mtext.BackgroundFill = false;
+    }
+  }
+
+  // Moves an MLeader's text (arrow tip stays) and re-picks the anchor side like OrientMLeader does at creation:
+  // TopLeft + forward dogleg when the text is ahead of the arrow along the reading direction, TopRight + backward otherwise.
+  internal static void MoveMLeaderText(MLeader mleader, Point3d textPoint, double? rotation)
+  {
+    var leaderIndexes = mleader.GetLeaderIndexes();
+    if (leaderIndexes.Count == 0)
+    {
+      mleader.TextLocation = textPoint;
+      return;
+    }
+
+    var leaderIndex = (int)leaderIndexes[0];
+    var lineIndexes = mleader.GetLeaderLineIndexes(leaderIndex);
+    var arrow = lineIndexes.Count > 0 ? mleader.GetFirstVertex((int)lineIndexes[0]) : textPoint;
+    using var mtext = mleader.MText;
+    var angle = rotation ?? mtext.Rotation;
+    var along = new Vector3d(Math.Cos(angle), Math.Sin(angle), 0);
+    var forward = (textPoint - arrow).DotProduct(along) >= 0;
+    if (rotation.HasValue)
+    {
+      mleader.TextAngleType = TextAngleType.InsertAngle;
+      mtext.Rotation = angle;
+    }
+
+    mtext.Attachment = forward ? AttachmentPoint.TopLeft : AttachmentPoint.TopRight;
+    mleader.MText = mtext;
+    mleader.SetDogleg(leaderIndex, forward ? along : along.Negate());
+    // Setting the text or dogleg moves the text to AutoCAD's default landing; put it back last.
+    mleader.TextLocation = textPoint;
   }
 
   private static Entity BuildMLeader(Database database, Transaction transaction, JsonObject item)
@@ -405,12 +468,10 @@ public static class DraftingBatchCommands
   // angle to read horizontally, and the dogleg follows that direction toward the text side.
   private static void OrientMLeader(MLeader mleader, JsonObject item)
   {
-    var rotation = PluginRuntime.GetOptionalDouble(item, "rotation");
+    // Without a rotation the label is horizontal (0): still pick the anchor side from where the text sits relative to the
+    // arrow, otherwise every label anchors TopLeft and the leader crosses its own text when the text is left of the arrow.
+    var rotation = PluginRuntime.GetOptionalDouble(item, "rotation") ?? 0d;
     var scale = PluginRuntime.GetOptionalDouble(item, "scale");
-    if (!rotation.HasValue && !scale.HasValue)
-    {
-      return;
-    }
 
     var height = PluginRuntime.GetOptionalDouble(item, "height");
     // An annotative MLeader takes its scale from the annotation scale (CANNOSCALE); setting Scale throws eInvalidContext.
@@ -421,7 +482,7 @@ public static class DraftingBatchCommands
 
     var arrow = new Point3d(PluginRuntime.GetRequiredDouble(item, "leaderX"), PluginRuntime.GetRequiredDouble(item, "leaderY"), 0);
     var textPoint = new Point3d(PluginRuntime.GetRequiredDouble(item, "x"), PluginRuntime.GetRequiredDouble(item, "y"), 0);
-    var along = rotation.HasValue ? new Vector3d(Math.Cos(rotation.Value), Math.Sin(rotation.Value), 0) : Vector3d.XAxis;
+    var along = new Vector3d(Math.Cos(rotation), Math.Sin(rotation), 0);
     // Text on the far side of the arrow along the reading direction: dogleg forward, text hangs from its
     // top-left corner; otherwise dogleg backward and the text hangs from its top-right corner (as drafted by hand).
     var forward = (textPoint - arrow).DotProduct(along) >= 0;
@@ -432,16 +493,13 @@ public static class DraftingBatchCommands
       mtext.TextHeight = height.Value;
     }
 
-    if (rotation.HasValue)
-    {
-      mleader.TextAngleType = TextAngleType.InsertAngle;
-      mtext.Rotation = rotation.Value;
-      mtext.Attachment = forward ? AttachmentPoint.TopLeft : AttachmentPoint.TopRight;
-    }
+    mleader.TextAngleType = TextAngleType.InsertAngle;
+    mtext.Rotation = rotation;
+    mtext.Attachment = forward ? AttachmentPoint.TopLeft : AttachmentPoint.TopRight;
 
     mleader.MText = mtext;
     var leaderIndexes = mleader.GetLeaderIndexes();
-    if (rotation.HasValue && leaderIndexes.Count > 0)
+    if (leaderIndexes.Count > 0)
     {
       mleader.SetDogleg((int)leaderIndexes[0], forward ? along : along.Negate());
       // Setting the text or dogleg moves the text to AutoCAD's default landing; put it back last.
@@ -504,13 +562,64 @@ public static class DraftingBatchCommands
 
   // Plan view centered on (targetX, targetY): ViewCenter 0 puts the target at the viewport center for
   // any twist, the same convention acad_set_viewport_twist uses. Returns whether the viewport is on.
-  private static bool ConfigureViewport(Viewport viewport, JsonObject item)
+  // A viewport made through the API has NO annotation scale of its own, so annotative dimensions/MLeaders drawn under
+  // CANNOSCALE `1" = 20'` are hidden in it (0 dimension words in the plot). Give it the annotation scale that matches its
+  // custom scale (`1" = 20'` for 0.05), like a viewport made with MVIEW.
+  internal static string? TryApplyViewportAnnotationScale(Database database, Viewport viewport)
+  {
+    var custom = viewport.CustomScale;
+    if (custom <= 0)
+    {
+      return null;
+    }
+
+    // Prefer the standard name `1" = 20'` (with spaces). A drawing can also hold a stray custom `1"=20'` (typed without
+    // spaces at the -OBJECTSCALE prompt); matching that one leaves the viewport on a scale no object carries.
+    var standard = $"1\" = {Math.Round(1 / custom, 2)}'";
+    AnnotationScale? loose = null;
+    AnnotationScale? byRatio = null;
+    foreach (ObjectContext context in database.ObjectContextManager.GetContextCollection("ACDB_ANNOTATIONSCALES"))
+    {
+      if (context is not AnnotationScale candidate)
+      {
+        continue;
+      }
+
+      if (candidate.Name.Equals(standard, StringComparison.Ordinal))
+      {
+        viewport.AnnotationScale = candidate;
+        return candidate.Name;
+      }
+
+      if (loose == null && candidate.Name.Replace(" ", string.Empty).Equals(standard.Replace(" ", string.Empty), StringComparison.Ordinal))
+      {
+        loose = candidate;
+      }
+
+      if (byRatio == null && candidate.DrawingUnits > 0 && Math.Abs(candidate.PaperUnits / candidate.DrawingUnits - custom) < 1e-9)
+      {
+        byRatio = candidate;
+      }
+    }
+
+    var chosen = loose ?? byRatio;
+    if (chosen == null)
+    {
+      return null;
+    }
+
+    viewport.AnnotationScale = chosen;
+    return chosen.Name;
+  }
+
+  private static bool ConfigureViewport(Database database, Viewport viewport, JsonObject item)
   {
     viewport.ViewDirection = Vector3d.ZAxis;
     viewport.ViewTarget = new Point3d(PluginRuntime.GetRequiredDouble(item, "targetX"), PluginRuntime.GetRequiredDouble(item, "targetY"), 0);
     viewport.ViewCenter = Point2d.Origin;
     viewport.TwistAngle = (PluginRuntime.GetOptionalDouble(item, "twistDegrees") ?? 0d) * Math.PI / 180d;
     viewport.CustomScale = PluginRuntime.GetOptionalDouble(item, "scale") ?? 1d;
+    TryApplyViewportAnnotationScale(database, viewport);
     var on = true;
     try
     {

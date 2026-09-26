@@ -447,6 +447,7 @@ describe("domain manifest migration", () => {
     expect(geometry!.operations).toContain("copy_layout");
     expect(geometry!.operations).toContain("rename_layout");
     expect(geometry!.operations).toContain("delete_layout");
+    expect(geometry!.operations).toContain("set_viewport_scale");
     expect(geometry!.operations).toContain("list_block_references");
     expect(geometry!.operations).toContain("list_shape_entities");
     expect(geometry!.operations).toContain("update_text_content");

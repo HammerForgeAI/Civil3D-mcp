@@ -81,9 +81,10 @@ public static class ProfileViewAnnotationCommands
     });
   }
 
-  private static Dictionary<string, object?> DescribeAnnotations(ProfileView view, Transaction transaction)
+  // GetLabelIds() only covers labels owned by the view (station/elevation, depth); labels on parts
+  // drawn in the view come from the part-label lists and from each drawn pressure part.
+  private static List<ObjectId> CollectViewLabelIds(ProfileView view, Transaction transaction)
   {
-    var labels = new List<Dictionary<string, object?>>();
     var labelIds = new List<ObjectId>();
     void Collect(ObjectIdCollection ids)
     {
@@ -96,8 +97,6 @@ public static class ProfileViewAnnotationCommands
       }
     }
 
-    // GetLabelIds() only covers labels owned by the view (station/elevation, depth); labels on parts
-    // drawn in the view come from the part-label lists and from each drawn pressure part.
     Collect(view.GetLabelIds());
     Collect(view.GetAvailableStructureProfileLabelIds());
     Collect(view.GetAvailablePipeProfileLabelIds());
@@ -109,6 +108,14 @@ public static class ProfileViewAnnotationCommands
         Collect(drawn.GetLabelIds());
       }
     }
+
+    return labelIds;
+  }
+
+  private static Dictionary<string, object?> DescribeAnnotations(ProfileView view, Transaction transaction)
+  {
+    var labels = new List<Dictionary<string, object?>>();
+    var labelIds = CollectViewLabelIds(view, transaction);
 
     foreach (var labelId in labelIds)
     {
@@ -348,6 +355,7 @@ public static class ProfileViewAnnotationCommands
         }
       }
 
+      var planLabels = CollectPlanLabels(database, transaction);
       var labelResults = new List<Dictionary<string, object?>>();
       for (var index = 0; index < (labelSpecs?.Count ?? 0); index++)
       {
@@ -363,7 +371,19 @@ public static class ProfileViewAnnotationCommands
           var labelId = FindExistingStationLabel(spec, existingStationLabels);
           if (labelId.IsNull)
           {
-            labelId = CreateLabel(spec, view, transaction, database, labelStyles, styles, parts, maxDistance, entry);
+            // Plan labels (NoteLabel/StationOffsetLabel) live in model space, not in the view: re-applying the same
+            // labels moves/re-texts the existing ones instead of stacking a duplicate on the same anchor.
+            labelId = FindExistingPlanLabel(spec, planLabels);
+            if (labelId.IsNull)
+            {
+              // Same for part labels already drawn in this view (re-applying a corrected override edits, not duplicates).
+              labelId = FindExistingPartLabel(spec, view, transaction, Math.Min(maxDistance, 0.5));
+            }
+
+            if (!labelId.IsNull)
+            {
+              entry["reused"] = true;
+            }
           }
           else
           {
@@ -374,6 +394,11 @@ public static class ProfileViewAnnotationCommands
             {
               reused.StyleId = RequireStyle(transaction, wantedStyle, "station elevation label", labelStyles.ProfileViewLabelStyles.StationElevationLabelStyles);
             }
+          }
+
+          if (labelId.IsNull)
+          {
+            labelId = CreateLabel(spec, view, transaction, database, labelStyles, styles, parts, maxDistance, entry);
           }
 
           ApplyLabelPlacement(spec, labelId, transaction, database);
@@ -560,10 +585,120 @@ public static class ProfileViewAnnotationCommands
     return match?.ObjectId ?? ObjectId.Null;
   }
 
+  // Existing plan labels keyed by what identifies them: NoteLabel by anchor, StationOffsetLabel by alignment + labeled point.
+  private static List<(ObjectId Id, string Type, string Style, string? Alignment, Point2d Anchor)> CollectPlanLabels(Database database, Transaction transaction)
+  {
+    var labels = new List<(ObjectId, string, string, string?, Point2d)>();
+    foreach (ObjectId id in NoteLabel.GetAvailableLabelIds(database))
+    {
+      if (!id.IsErased && transaction.GetObject(id, OpenMode.ForRead) is NoteLabel note)
+      {
+        var anchor = note.Dragged ? note.LabelLocation - note.DraggedOffset : note.LabelLocation;
+        labels.Add((id, nameof(NoteLabel), note.StyleName, null, new Point2d(anchor.X, anchor.Y)));
+      }
+    }
+
+    var blockTable = CivilObjectUtils.GetRequiredObject<BlockTable>(transaction, database.BlockTableId, OpenMode.ForRead);
+    var modelSpace = CivilObjectUtils.GetRequiredObject<BlockTableRecord>(transaction, blockTable[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+    var stationOffsetClass = RXObject.GetClass(typeof(StationOffsetLabel));
+    foreach (ObjectId id in modelSpace)
+    {
+      if (id.ObjectClass.IsDerivedFrom(stationOffsetClass) && transaction.GetObject(id, OpenMode.ForRead) is StationOffsetLabel stationOffset)
+      {
+        var alignmentName = transaction.GetObject(stationOffset.FeatureId, OpenMode.ForRead) is Alignment alignment ? alignment.Name : null;
+        labels.Add((id, nameof(StationOffsetLabel), stationOffset.StyleName, alignmentName, new Point2d(stationOffset.Location.X, stationOffset.Location.Y)));
+      }
+    }
+
+    return labels;
+  }
+
+  private static ObjectId FindExistingPartLabel(JsonObject spec, ProfileView view, Transaction transaction, double tolerance)
+  {
+    var type = PluginRuntime.GetOptionalString(spec, "type");
+    var style = PluginRuntime.GetOptionalString(spec, "style");
+    if (type is not (nameof(StructureProfileLabel) or nameof(PipeProfileLabel) or nameof(PressurePipeProfileLabel)
+      or nameof(PressureFittingProfileLabel) or nameof(PressureAppurtenanceProfileLabel))
+      || PluginRuntime.GetParameter(spec, "featureX") == null || PluginRuntime.GetParameter(spec, "featureY") == null)
+    {
+      return ObjectId.Null;
+    }
+
+    var target = new Point2d(PluginRuntime.GetRequiredDouble(spec, "featureX"), PluginRuntime.GetRequiredDouble(spec, "featureY"));
+    var ratio = PluginRuntime.GetOptionalDouble(spec, "ratio");
+    foreach (ObjectId id in CollectViewLabelIds(view, transaction))
+    {
+      if (id.IsErased || transaction.GetObject(id, OpenMode.ForRead) is not Label label
+        || label.GetType().Name != type
+        || !string.Equals(label.StyleName, style, StringComparison.OrdinalIgnoreCase))
+      {
+        continue;
+      }
+
+      var feature = ResolveModelPart(transaction, label.FeatureId);
+      var position = feature == null ? null : PartPosition(feature);
+      if (!position.HasValue || position.Value.GetDistanceTo(target) > tolerance)
+      {
+        continue;
+      }
+
+      var labelRatio = label switch
+      {
+        PipeProfileLabel pipe => pipe.Ratio,
+        PressurePipeProfileLabel pressurePipe => pressurePipe.Ratio,
+        _ => (double?)null,
+      };
+      if (ratio.HasValue && labelRatio.HasValue && Math.Abs(ratio.Value - labelRatio.Value) > 0.02)
+      {
+        continue;
+      }
+
+      return id;
+    }
+
+    return ObjectId.Null;
+  }
+
+  private static ObjectId FindExistingPlanLabel(JsonObject spec, List<(ObjectId Id, string Type, string Style, string? Alignment, Point2d Anchor)> existing)
+  {
+    var type = PluginRuntime.GetOptionalString(spec, "type");
+    var style = PluginRuntime.GetOptionalString(spec, "style");
+    Point2d? anchor;
+    string? alignmentName = null;
+    if (type == nameof(NoteLabel))
+    {
+      anchor = ReadPoint(spec, "anchor") ?? ReadPoint(spec, "labelLocation");
+    }
+    else if (type == nameof(StationOffsetLabel))
+    {
+      anchor = ReadPoint(spec, "location");
+      alignmentName = PluginRuntime.GetOptionalString(spec, "alignmentName");
+    }
+    else
+    {
+      return ObjectId.Null;
+    }
+
+    if (!anchor.HasValue)
+    {
+      return ObjectId.Null;
+    }
+
+    var match = existing.FirstOrDefault(label => label.Type == type
+      && string.Equals(label.Style, style, StringComparison.OrdinalIgnoreCase)
+      && (alignmentName == null || string.Equals(label.Alignment, alignmentName, StringComparison.OrdinalIgnoreCase))
+      && label.Anchor.GetDistanceTo(anchor.Value) < 0.01);
+    return match.Id;
+  }
+
   private static void ApplyLabelPlacement(JsonObject spec, ObjectId labelId, Transaction transaction, Database database)
   {
-    var dragged = PluginRuntime.GetOptionalBool(spec, "dragged") ?? false;
     var location = ReadPoint(spec, "labelLocation");
+    // A labelLocation that differs from the labeled point is a dragged label even when the spec omits
+    // "dragged" (a hand-built payload used to drop the position silently, stacking plan labels on their anchor).
+    var anchorPoint = ReadPoint(spec, "anchor") ?? ReadPoint(spec, "location");
+    var dragged = PluginRuntime.GetOptionalBool(spec, "dragged")
+      ?? (location.HasValue && anchorPoint.HasValue && location.Value.GetDistanceTo(anchorPoint.Value) > 1e-6);
     var overrides = PluginRuntime.GetParameter(spec, "overrides") as JsonArray;
     var layer = PluginRuntime.GetOptionalString(spec, "layer");
     if ((!dragged || location == null) && (overrides == null || overrides.Count == 0) && string.IsNullOrWhiteSpace(layer))

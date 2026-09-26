@@ -302,6 +302,8 @@ public static class AcadCommands
         mtext.Width = width;
       }
 
+      DraftingBatchCommands.ApplyMTextMask(mtext, parameters!);
+
       if (!string.IsNullOrWhiteSpace(layerName))
       {
         var layerId = LookupUtils.GetLayerId(database, transaction, layerName);
@@ -853,9 +855,14 @@ public static class AcadCommands
     var newHeight = PluginRuntime.GetOptionalDouble(parameters, "height");
     var newRotation = PluginRuntime.GetOptionalDouble(parameters, "rotation");
 
-    if (newText == null && newHeight == null && newRotation == null && (newX == null || newY == null))
+    var newLeaderX = PluginRuntime.GetOptionalDouble(parameters, "leaderX");
+    var newLeaderY = PluginRuntime.GetOptionalDouble(parameters, "leaderY");
+    var maskRequested = PluginRuntime.GetOptionalBool(parameters, "backgroundMask") != null;
+
+    if (newText == null && newHeight == null && newRotation == null && (newX == null || newY == null)
+      && (newLeaderX == null || newLeaderY == null) && !maskRequested)
     {
-      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "updateTextContent requires 'text', 'height', 'rotation', or both 'x' and 'y'.");
+      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "updateTextContent requires 'text', 'height', 'rotation', both 'x' and 'y', both 'leaderX' and 'leaderY' (MLeader arrow), or 'backgroundMask'.");
     }
 
     long handleNumber;
@@ -936,6 +943,8 @@ public static class AcadCommands
             mText.Rotation = mtr;
           }
 
+          DraftingBatchCommands.ApplyMTextMask(mText, parameters!);
+
           return new Dictionary<string, object?>
           {
             ["handle"] = handleValue,
@@ -950,11 +959,6 @@ public static class AcadCommands
           };
 
         case MLeader mLeader:
-          if (newX != null || newY != null || newRotation != null)
-          {
-            throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "MLeader entities only support 'text' and 'height' updates, not position or rotation (leader vertices require dedicated leader APIs).");
-          }
-
           var existingMText = mLeader.MText ?? throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"MLeader '{handleValue}' has no editable text content.");
           if (newText != null)
           {
@@ -968,14 +972,37 @@ public static class AcadCommands
 
           mLeader.MText = existingMText;
 
+          // Arrow tip: first vertex of the first leader line.
+          if (newLeaderX is double lax && newLeaderY is double lay)
+          {
+            var leaderIndexes = mLeader.GetLeaderIndexes();
+            var lineIndexes = leaderIndexes.Count > 0 ? mLeader.GetLeaderLineIndexes((int)leaderIndexes[0]) : null;
+            if (lineIndexes == null || lineIndexes.Count == 0)
+            {
+              throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"MLeader '{handleValue}' has no leader line to move.");
+            }
+
+            mLeader.SetFirstVertex((int)lineIndexes[0], new Point3d(lax, lay, 0));
+          }
+
+          // Text: x/y moves it (re-picking the anchor side); rotation alone turns it in place.
+          if (newX is double lx && newY is double ly)
+          {
+            DraftingBatchCommands.MoveMLeaderText(mLeader, new Point3d(lx, ly, newZ ?? 0), newRotation);
+          }
+          else if (newRotation is double lr)
+          {
+            DraftingBatchCommands.MoveMLeaderText(mLeader, mLeader.TextLocation, lr);
+          }
+
           return new Dictionary<string, object?>
           {
             ["handle"] = handleValue,
             ["entityType"] = "MLeader",
             ["text"] = mLeader.MText?.Contents,
-            ["x"] = mLeader.MText?.Location.X,
-            ["y"] = mLeader.MText?.Location.Y,
-            ["z"] = mLeader.MText?.Location.Z,
+            ["x"] = mLeader.TextLocation.X,
+            ["y"] = mLeader.TextLocation.Y,
+            ["z"] = mLeader.TextLocation.Z,
             ["layer"] = mLeader.Layer,
           };
 
