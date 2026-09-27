@@ -33,6 +33,17 @@
     point-in-polygon, stride decimation, unit resolution) with an offline
     harness, `npm run test:bridge-math`. Verified live against Civil 3D 2027.
 
+### Fixed
+
+- `getPipeNetwork` (`civil3d_pipe get`) failed with CivilException "Retrieve
+  attribute failed" on networks whose style, parts list, or reference
+  surface/alignment attributes are unset (seen on the Civil 3D 2027 Pipe
+  Networks-3 tutorial drawing), although each pipe and structure read fine on
+  its own. Those network attributes, and part-family-specific pipe attributes,
+  are now read defensively and reported as `null`.
+- The host executor rethrew captured exceptions with `throw ex`, which dropped
+  the original stack from the plugin log; it now uses `ExceptionDispatchInfo`.
+
 ## v1.2.1 — 2026-07-14
 
 ### Production readiness

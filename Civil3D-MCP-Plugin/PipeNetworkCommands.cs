@@ -398,10 +398,14 @@ public static class PipeNetworkCommands
     {
       ["name"] = network.Name,
       ["handle"] = CivilObjectUtils.GetHandle(network),
-      ["partsList"] = ResolveObjectName(transaction, network.PartsListId),
-      ["style"] = network.StyleName,
-      ["referenceSurface"] = ResolveObjectName(transaction, network.ReferenceSurfaceId),
-      ["referenceAlignment"] = ResolveObjectName(transaction, network.ReferenceAlignmentId),
+      // Network-level attributes throw CivilException "Retrieve attribute failed"
+      // when unset (live on Civil 3D 2027, Pipe Networks-3 tutorial drawing: every
+      // pipe and structure read fine on its own, but the whole getPipeNetwork call
+      // failed), so read them defensively.
+      ["partsList"] = SafeText(() => ResolveObjectName(transaction, network.PartsListId)),
+      ["style"] = SafeText(() => network.StyleName),
+      ["referenceSurface"] = SafeText(() => ResolveObjectName(transaction, network.ReferenceSurfaceId)),
+      ["referenceAlignment"] = SafeText(() => ResolveObjectName(transaction, network.ReferenceAlignmentId)),
       ["pipes"] = pipes,
       ["structures"] = structures,
     };
@@ -414,7 +418,11 @@ public static class PipeNetworkCommands
     // The managed Pipe API has no invert property. StartPoint/EndPoint are
     // centreline points, so invert = centreline - inner height / 2 (inner
     // height equals the inner diameter for circular pipes).
-    var innerHeight = pipe.InnerHeight > 0 ? pipe.InnerHeight : pipe.InnerDiameterOrWidth;
+    // Part-family-specific properties (outer size, wall thickness, shape) are
+    // read defensively: Civil 3D throws CivilException "Retrieve attribute
+    // failed" for attributes a part does not define, and one bad attribute
+    // should not fail the whole network read.
+    var innerHeight = SafeDouble(() => pipe.InnerHeight) is > 0 and var h ? h : pipe.InnerDiameterOrWidth;
     var halfHeight = innerHeight / 2.0;
 
     return new Dictionary<string, object?>
@@ -441,13 +449,25 @@ public static class PipeNetworkCommands
       ["endCrown"] = end.Z + halfHeight,
       ["invertSource"] = "centerline - innerHeight/2",
       ["innerDiameter"] = pipe.InnerDiameterOrWidth,
-      ["outerDiameter"] = pipe.OuterDiameterOrWidth,
+      ["outerDiameter"] = SafeDouble(() => pipe.OuterDiameterOrWidth),
       ["innerHeight"] = innerHeight,
-      ["outerHeight"] = pipe.OuterHeight,
-      ["wallThickness"] = pipe.WallThickness,
-      ["crossSectionalShape"] = pipe.CrossSectionalShape.ToString(),
-      ["length2d"] = pipe.Length2D,
+      ["outerHeight"] = SafeDouble(() => pipe.OuterHeight),
+      ["wallThickness"] = SafeDouble(() => pipe.WallThickness),
+      ["crossSectionalShape"] = SafeText(() => pipe.CrossSectionalShape.ToString()),
+      ["length2d"] = SafeDouble(() => pipe.Length2D),
     };
+  }
+
+  private static double? SafeDouble(Func<double> getter)
+  {
+    try { return getter(); }
+    catch (Autodesk.Civil.CivilException) { return null; }
+  }
+
+  private static string? SafeText(Func<string?> getter)
+  {
+    try { return getter(); }
+    catch (Autodesk.Civil.CivilException) { return null; }
   }
 
   private static Dictionary<string, object?> ToStructureData(Structure structure, Transaction transaction)
