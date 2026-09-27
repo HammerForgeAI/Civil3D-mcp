@@ -230,7 +230,7 @@ public static class CompareCommands
             Type = type,
             Layer = entity.Layer,
             Space = space,
-            Hash = DrawingFingerprint.Hash(EntitySignature(entity, type)),
+            Hash = DrawingFingerprint.Hash(EntitySignature(entity, type, transaction)),
           });
         }
         catch (Exception exception) when (exception is not JsonRpcDispatchException)
@@ -246,7 +246,7 @@ public static class CompareCommands
     }
   }
 
-  private static string EntitySignature(Autodesk.AutoCAD.DatabaseServices.Entity entity, string type)
+  private static string EntitySignature(Autodesk.AutoCAD.DatabaseServices.Entity entity, string type, Transaction transaction)
   {
     var builder = new StringBuilder(160);
     builder.Append(type).Append('|').Append(entity.Layer)
@@ -289,6 +289,18 @@ public static class CompareCommands
             .Append("|rot:").Append(DrawingFingerprint.Num(reference.Rotation))
             .Append("|scl:").Append(DrawingFingerprint.Num(reference.ScaleFactors.X))
             .Append(',').Append(DrawingFingerprint.Num(reference.ScaleFactors.Y));
+          // Attribute references are owned by the block reference, not the
+          // layout, so they are never fingerprinted on their own: fold their
+          // tags and values in here so title-block edits show as modified.
+          foreach (ObjectId attributeId in reference.AttributeCollection)
+          {
+            if (!attributeId.IsErased &&
+                transaction.GetObject(attributeId, OpenMode.ForRead) is AttributeReference attribute)
+            {
+              builder.Append("|att:").Append(attribute.Tag).Append('=').Append(attribute.TextString);
+            }
+          }
+
           break;
         case Dimension dimension:
           builder.Append("|dim:").Append(DrawingFingerprint.Num(dimension.Measurement)).Append(':').Append(dimension.DimensionText);
@@ -499,6 +511,28 @@ public static class CompareCommands
       summary["statistics"] = $"unavailable: {exception.Message}";
     }
 
+    // Count and min/max/mean miss edits that keep them unchanged (moving an
+    // interior point, flipping an edge). Triangle count and 2D/3D area catch
+    // those cheaply; a full vertex hash would cost O(points) under the host
+    // lock on every comparison.
+    try
+    {
+      switch (surface)
+      {
+        case TinSurface tin:
+          summary["triangleCount"] = tin.GetTinProperties().NumberOfTriangles;
+          AddAreas(summary, tin.GetTerrainProperties());
+          break;
+        case GridSurface grid:
+          AddAreas(summary, grid.GetTerrainProperties());
+          break;
+      }
+    }
+    catch (Exception exception) when (exception is not JsonRpcDispatchException)
+    {
+      summary["terrainStatistics"] = $"unavailable: {exception.Message}";
+    }
+
     try
     {
       summary["isReference"] = surface.IsReferenceObject;
@@ -508,6 +542,12 @@ public static class CompareCommands
     }
 
     return Print("surface", surface.Name, surface, summary);
+  }
+
+  private static void AddAreas(JsonObject summary, TerrainSurfaceProperties properties)
+  {
+    summary["area2d"] = Round(properties.SurfaceArea2D);
+    summary["area3d"] = Round(properties.SurfaceArea3D);
   }
 
   private static CivilObjectPrint DescribePipeNetwork(Network network, Transaction transaction)

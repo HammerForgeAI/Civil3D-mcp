@@ -59,7 +59,41 @@ public sealed class DrawingFingerprint
     fingerprint.Entities ??= new();
     fingerprint.CivilObjects ??= new();
     fingerprint.Warnings ??= new();
+    Validate(fingerprint);
     return fingerprint;
+  }
+
+  // A schema-tagged file can still carry null rows or null required fields
+  // ("entities":[null], "summary":null); reject those as invalid input here
+  // instead of letting the diff fail later with an internal error.
+  private static void Validate(DrawingFingerprint fingerprint)
+  {
+    for (var index = 0; index < fingerprint.Entities.Count; index++)
+    {
+      var entity = fingerprint.Entities[index];
+      if (entity == null || entity.Handle == null || entity.Type == null || entity.Hash == null)
+      {
+        throw new JsonRpcDispatchException(
+          "CIVIL3D.INVALID_INPUT",
+          $"Snapshot entity {index} is missing its handle, type or hash.");
+      }
+
+      entity.Layer ??= string.Empty;
+      entity.Space ??= string.Empty;
+    }
+
+    for (var index = 0; index < fingerprint.CivilObjects.Count; index++)
+    {
+      var item = fingerprint.CivilObjects[index];
+      if (item == null || item.Kind == null || item.Name == null || item.Hash == null || item.Summary == null)
+      {
+        throw new JsonRpcDispatchException(
+          "CIVIL3D.INVALID_INPUT",
+          $"Snapshot Civil 3D object {index} is missing its kind, name, hash or summary.");
+      }
+    }
+
+    fingerprint.Warnings.RemoveAll(warning => warning == null);
   }
 
   /// <summary>First 16 hex characters of SHA-256 — ample for change detection.</summary>
@@ -313,12 +347,14 @@ public static class DrawingFingerprintDiff
       })
       .ToList();
 
+    var rowLimit = Math.Max(maxDetails, 0);
     var report = new Dictionary<string, object?>
     {
+      ["truncated"] = added.Count > rowLimit || removed.Count > rowLimit || modified.Count > rowLimit,
       ["byKind"] = byKind,
-      ["added"] = added.Take(Math.Max(maxDetails, 0)).Select(item => new Dictionary<string, object?> { ["kind"] = item.Kind, ["name"] = item.Name, ["handle"] = item.Handle, ["summary"] = item.Summary.DeepClone() }).ToList(),
-      ["removed"] = removed.Take(Math.Max(maxDetails, 0)).Select(item => new Dictionary<string, object?> { ["kind"] = item.Kind, ["name"] = item.Name, ["handle"] = item.Handle }).ToList(),
-      ["modified"] = modified.Take(Math.Max(maxDetails, 0)).ToList(),
+      ["added"] = added.Take(rowLimit).Select(item => new Dictionary<string, object?> { ["kind"] = item.Kind, ["name"] = item.Name, ["handle"] = item.Handle, ["summary"] = item.Summary.DeepClone() }).ToList(),
+      ["removed"] = removed.Take(rowLimit).Select(item => new Dictionary<string, object?> { ["kind"] = item.Kind, ["name"] = item.Name, ["handle"] = item.Handle }).ToList(),
+      ["modified"] = modified.Take(rowLimit).ToList(),
       ["unchanged"] = unchanged,
     };
 

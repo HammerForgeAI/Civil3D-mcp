@@ -33,7 +33,7 @@ const DataShortcutListResponseSchema = z.object({
 
 const GenericProjectResponseSchema = z.object({}).passthrough();
 
-export const DataShortcutReferenceStatusSchema = z.enum(["current", "out_of_date", "broken", "source_missing"]);
+export const DataShortcutReferenceStatusSchema = z.enum(["current", "out_of_date", "broken", "source_missing", "unknown"]);
 
 export const DataShortcutReferenceSchema = z.object({
   objectName: z.string(),
@@ -49,8 +49,9 @@ export const DataShortcutReferenceSchema = z.object({
   handle: z.string(),
   layer: z.string().nullish(),
   status: DataShortcutReferenceStatusSchema,
-  isValid: z.boolean(),
-  isStale: z.boolean(),
+  // null when Civil 3D could not report it; status is then "unknown".
+  isValid: z.boolean().nullable(),
+  isStale: z.boolean().nullable(),
   isPartial: z.boolean(),
   sourceDrawing: z.string().nullish(),
   sourceDrawingExists: z.boolean().nullish(),
@@ -94,7 +95,9 @@ const canonicalProjectInputShape = {
   ]),
   sourceFilePath: z.string().optional(),
   objectName: z.string().optional(),
-  objectType: DataShortcutObjectTypeSchema.optional(),
+  // data_shortcut_repair also accepts view_frame_group; the per-action
+  // schemas narrow this to what each action supports.
+  objectType: z.union([DataShortcutObjectTypeSchema, RepairableReferenceTypeSchema]).optional(),
   description: z.string().optional(),
   projectFolder: z.string().optional(),
   shortcutName: z.string().optional(),
@@ -297,7 +300,7 @@ export const PROJECT_DOMAIN_DEFINITION: DomainToolDefinition = {
     {
       toolName: "civil3d_project",
       displayName: "Civil 3D Project",
-      description: "Manages Civil 3D project collaboration workflows including data-shortcut listing, publishing, referencing, promotion, and synchronization through a single domain tool. data_shortcut_references lists the references in the current drawing with their source drawing/object and status (current, out_of_date, broken, source_missing); data_shortcut_sync synchronizes out-of-date references; data_shortcut_repair repoints a reference to a new source drawing (path must be inside the plugin's import roots); data_shortcut_promote converts a reference into a local copy.",
+      description: "Manages Civil 3D project collaboration workflows including data-shortcut listing, publishing, referencing, promotion, and synchronization through a single domain tool. data_shortcut_references lists the references in the current drawing with their source drawing/object and status (current, out_of_date, broken, source_missing, unknown); data_shortcut_sync synchronizes out-of-date references; data_shortcut_repair repoints a reference to a new source drawing (path must be inside the plugin's import roots); data_shortcut_promote converts a reference into a local copy.",
       inputShape: canonicalProjectInputShape,
       supportedActions: [
         "data_shortcut_list",

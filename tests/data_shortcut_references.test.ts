@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { isApprovalRequired } from "../src/tools/approvalPolicy.js";
 import {
+  DataShortcutReferenceStatusSchema,
   DataShortcutReferencesResponseSchema,
   DataShortcutRepairArgsSchema,
   PROJECT_DOMAIN_DEFINITION,
@@ -63,13 +65,27 @@ describe("civil3d_project data-shortcut references", () => {
       currentProjectFolder: "Route 9",
       currentProjectPath: "C:\\Civil 3D Projects\\Route 9",
       drawingProjectId: null,
-      count: 2,
-      statusCounts: { current: 1, source_missing: 1 },
+      count: 5,
+      statusCounts: { current: 1, out_of_date: 1, source_missing: 1, broken: 1, unknown: 1 },
       references: [
         { objectName: "EG", objectType: "surface", handle: "3F2", layer: "C-TOPO", status: "current", isValid: true, isStale: false, isPartial: false, sourceDrawing: "C:\\Civil 3D Projects\\Route 9\\Source\\EG.dwg", sourceDrawingExists: true, sourceObjectName: "EG", sourceObjectType: "Surface", sourceObjectHandle: "1A2", sourceLocation: "current_project" },
+        { objectName: "FG", objectType: "surface", handle: "3F4", layer: "C-TOPO", status: "out_of_date", isValid: true, isStale: true, isPartial: false, sourceDrawing: "C:\\Civil 3D Projects\\Route 8\\Source\\FG.dwg", sourceDrawingExists: true, sourceObjectName: "FG", sourceObjectType: "Surface", sourceObjectHandle: "1A3", sourceLocation: "other_project_in_working_folder" },
         { objectName: "CL", objectType: "alignment", handle: "3F3", layer: "C-ROAD", status: "source_missing", isValid: false, isStale: false, isPartial: false, sourceDrawing: "\\\\old-server\\CL.dwg", sourceDrawingExists: false, sourceObjectName: "CL", sourceObjectType: "Alignment", sourceObjectHandle: "22", sourceLocation: "outside_working_folder" },
+        { objectName: "VF", objectType: "view_frame_group", handle: "3F5", layer: "C-ANNO", status: "broken", isValid: false, isStale: false, isPartial: true, sourceDrawing: null, sourceDrawingExists: null, sourceObjectName: null, sourceObjectType: null, sourceObjectHandle: null, sourceLocation: "unknown" },
+        { objectName: "Storm", objectType: "pipe_network", handle: "3F6", layer: "C-STRM", status: "unknown", isValid: null, isStale: null, isPartial: false, sourceDrawing: null, sourceDrawingExists: null, sourceObjectName: null, sourceObjectType: null, sourceObjectHandle: null, sourceLocation: "unknown" },
       ],
       notes: [],
     }).success).toBe(true);
+    expect(DataShortcutReferenceStatusSchema.options).toEqual(["current", "out_of_date", "broken", "source_missing", "unknown"]);
+  });
+
+  it("lets data_shortcut_repair reach view_frame_group through the public tool schema", () => {
+    const exposure = PROJECT_DOMAIN_DEFINITION.exposures.find((item) => item.toolName === "civil3d_project")!;
+    const publicInput = z.object(exposure.inputShape);
+    const args = { action: "data_shortcut_repair", objectType: "view_frame_group", objectName: "VFG - CL", sourcePath: "C:/Shortcuts/Proj/Source/VF.dwg" };
+    expect(publicInput.safeParse(args).success).toBe(true);
+    expect(DataShortcutRepairArgsSchema.safeParse(args).success).toBe(true);
+    expect(publicInput.safeParse({ ...args, objectType: "section_view_group" }).success).toBe(true);
+    expect(publicInput.safeParse({ ...args, objectType: "parcel" }).success).toBe(false);
   });
 });

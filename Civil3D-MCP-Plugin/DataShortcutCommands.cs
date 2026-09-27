@@ -264,20 +264,12 @@ public static class DataShortcutCommands
     // data_shortcut_references that the object is no longer a reference.
     return CivilExecution.ReadAsync<object?>((doc, civilDoc, database, transaction) =>
     {
-      var match = FindReferenceCandidates(civilDoc, transaction)
-        .FirstOrDefault(candidate =>
-          string.Equals(candidate.ObjectType, shortcutType, StringComparison.OrdinalIgnoreCase) &&
-          string.Equals(candidate.Name, shortcutName, StringComparison.OrdinalIgnoreCase))
-        ?? throw new JsonRpcDispatchException(
-          "CIVIL3D.OBJECT_NOT_FOUND",
-          $"No {shortcutType} named '{shortcutName}' exists in the current drawing.");
-
-      if (!match.Entity.IsReferenceObject)
-      {
-        throw new JsonRpcDispatchException(
-          "CIVIL3D.INVALID_INPUT",
-          $"{shortcutType} '{shortcutName}' is already a local object, not a data-shortcut reference.");
-      }
+      var match = FindReference(
+        civilDoc,
+        transaction,
+        shortcutType,
+        shortcutName,
+        $"{shortcutType} '{shortcutName}' is already a local object, not a data-shortcut reference.");
 
       try
       {
@@ -343,7 +335,7 @@ public static class DataShortcutCommands
         ["references"] = references,
         ["notes"] = new List<string>
         {
-          "status: current | out_of_date (source changed; run data_shortcut_sync) | broken (reference invalid; run data_shortcut_repair) | source_missing (source drawing not found; run data_shortcut_repair with a new sourcePath).",
+          "status: current | out_of_date (source changed; run data_shortcut_sync) | broken (reference invalid; run data_shortcut_repair) | source_missing (source drawing not found; run data_shortcut_repair with a new sourcePath) | unknown (Civil 3D could not report the reference's health; isValid/isStale are null).",
         },
       };
     });
@@ -370,15 +362,12 @@ public static class DataShortcutCommands
       string? previousSource;
       using (var transaction = database.TransactionManager.StartOpenCloseTransaction())
       {
-        var candidate = FindReferenceCandidates(civilDoc, transaction)
-          .FirstOrDefault(item =>
-            string.Equals(item.ObjectType, objectType, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(item.Name, objectName, StringComparison.OrdinalIgnoreCase))
-          ?? throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"No {objectType} named '{objectName}' exists in the current drawing.");
-        if (!candidate.Entity.IsReferenceObject)
-        {
-          throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"{objectType} '{objectName}' is a local object, not a data-shortcut reference.");
-        }
+        var candidate = FindReference(
+          civilDoc,
+          transaction,
+          objectType,
+          objectName,
+          $"{objectType} '{objectName}' is a local object, not a data-shortcut reference.");
 
         referenceId = candidate.Entity.ObjectId;
         previousSource = SafeReferenceKey(candidate.Entity)?.SourceDrawing;
@@ -429,6 +418,40 @@ public static class DataShortcutCommands
   private sealed record ReferenceCandidate(string ObjectType, string Name, CivilEntity Entity);
 
   private sealed record DataShortcutProjectContext(string? WorkingFolder, string? CurrentProject, string? CurrentProjectPath);
+
+  // More than one object can match a type + name (profiles are matched by
+  // their own name, and profile names are only unique per alignment, so a
+  // local profile and a referenced one can share a name). Prefer a
+  // reference among the matches; only when every match is local is the
+  // request rejected as "not a reference".
+  private static ReferenceCandidate FindReference(
+    CivilDocument civilDoc,
+    Transaction transaction,
+    string objectType,
+    string objectName,
+    string localOnlyMessage)
+  {
+    var sawLocal = false;
+    foreach (var candidate in FindReferenceCandidates(civilDoc, transaction))
+    {
+      if (!string.Equals(candidate.ObjectType, objectType, StringComparison.OrdinalIgnoreCase) ||
+          !string.Equals(candidate.Name, objectName, StringComparison.OrdinalIgnoreCase))
+      {
+        continue;
+      }
+
+      if (candidate.Entity.IsReferenceObject)
+      {
+        return candidate;
+      }
+
+      sawLocal = true;
+    }
+
+    throw sawLocal
+      ? new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", localOnlyMessage)
+      : new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"No {objectType} named '{objectName}' exists in the current drawing.");
+  }
 
   private static IEnumerable<ReferenceCandidate> FindReferenceCandidates(CivilDocument civilDoc, Transaction transaction)
   {
@@ -487,19 +510,23 @@ public static class DataShortcutCommands
   {
     var entity = candidate.Entity;
     var key = SafeReferenceKey(entity);
-    var isValid = SafeBool(() => entity.IsReferenceValid) ?? true;
-    var isStale = SafeBool(() => entity.IsReferenceStale) ?? false;
+    // A failed read stays null: an unverifiable reference is reported as
+    // "unknown", never as healthy.
+    var isValid = SafeBool(() => entity.IsReferenceValid);
+    var isStale = SafeBool(() => entity.IsReferenceStale);
     var sourceExisting = SafeBool(() => entity.IsReferencedSourceExisting)
       ?? SafeBool(() => key?.IsSourceDrawingExistent);
     var sourceDrawing = key == null ? null : SafeString(() => key.SourceDrawing);
 
     var status = sourceExisting == false
       ? "source_missing"
-      : !isValid
+      : isValid == false
         ? "broken"
-        : isStale
+        : isStale == true
           ? "out_of_date"
-          : "current";
+          : isValid == true && isStale == false
+            ? "current"
+            : "unknown";
 
     return new Dictionary<string, object?>
     {

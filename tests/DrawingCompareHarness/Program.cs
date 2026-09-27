@@ -94,12 +94,27 @@ Assert((int)civil["unchanged"]! == 1, "EG should be unchanged");
 var roundTripped = DrawingFingerprint.FromJson(current.ToJson());
 var self = DrawingFingerprintDiff.Compare(roundTripped, current, 10);
 Assert((bool)((Dictionary<string, object?>)self["summary"]!)["identical"]!, "round-tripped snapshot should compare identical");
+// The diff only looks at hashes, so also require the serialized form itself
+// to survive the round trip (summaries, handles, layers, warnings).
+Assert(roundTripped.ToJson() == current.ToJson(), "snapshot JSON should round-trip unchanged");
 
 // maxDetails truncates rows but never counts.
 var truncated = DrawingFingerprintDiff.Compare(baseline, current, 0);
 var truncatedDetails = (Dictionary<string, object?>)truncated["details"]!;
 Assert((bool)truncatedDetails["truncated"]! && ((List<Dictionary<string, object?>>)truncatedDetails["added"]!).Count == 0, "truncation wrong");
 Assert((int)((Dictionary<string, object?>)truncated["summary"]!)["added"]! == 2, "counts must not truncate");
+var truncatedCivil = (Dictionary<string, object?>)truncated["civil"]!;
+Assert((bool)truncatedCivil["truncated"]! && ((List<Dictionary<string, object?>>)truncatedCivil["modified"]!).Count == 0, "civil truncation not reported");
+Assert(!(bool)civil["truncated"]!, "civil diff under maxDetails should not be truncated");
+
+// Schema-tagged but structurally malformed snapshots are invalid input, not internal errors.
+const string schemaTag = "\"schema\":\"civil3d-mcp/drawing-fingerprint@1\"";
+ExpectCode("CIVIL3D.INVALID_INPUT", () => DrawingFingerprint.FromJson("{" + schemaTag + ",\"entities\":[null]}"));
+ExpectCode("CIVIL3D.INVALID_INPUT", () => DrawingFingerprint.FromJson("{" + schemaTag + ",\"entities\":[{\"handle\":\"1A\",\"type\":null,\"hash\":\"x\"}]}"));
+ExpectCode("CIVIL3D.INVALID_INPUT", () => DrawingFingerprint.FromJson("{" + schemaTag + ",\"civilObjects\":[{\"kind\":\"surface\",\"name\":\"EG\",\"hash\":\"x\",\"summary\":null}]}"));
+ExpectCode("CIVIL3D.INVALID_INPUT", () => DrawingFingerprint.FromJson("{" + schemaTag + ",\"civilObjects\":[null]}"));
+var lenient = DrawingFingerprint.FromJson("{" + schemaTag + ",\"entities\":[{\"handle\":\"1A\",\"type\":\"LINE\",\"hash\":\"x\",\"layer\":null}]}");
+DrawingFingerprintDiff.Compare(lenient, current, 10);
 
 // Schema guard.
 ExpectCode("CIVIL3D.INVALID_INPUT", () => DrawingFingerprint.FromJson("{\"schema\":\"something-else\"}"));

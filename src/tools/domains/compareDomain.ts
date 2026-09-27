@@ -61,6 +61,7 @@ export const CompareResponseSchema = z.object({
     modified: z.array(EntityRowSchema),
   }),
   civil: z.object({
+    truncated: z.boolean(),
     byKind: z.array(z.object({
       kind: z.string(),
       baseline: z.number().int(),
@@ -174,7 +175,7 @@ export const COMPARE_DOMAIN_DEFINITION: DomainToolDefinition = {
       toolName: "civil3d_compare",
       displayName: "Civil 3D Compare",
       description:
-        "Compares the active drawing without modifying anything. 'drawing' reads another DWG as a side database (never opened as a document) and reports added/removed/modified entities by type and layer plus Civil 3D object changes (alignment length/geometry hash, profile PVIs, surface statistics, pipe counts/inverts). 'snapshot' writes a JSON fingerprint of the current drawing to an allowed export folder (approval required, overwrite defaults to false); 'compare_snapshot' diffs the current drawing against such a snapshot, e.g. 'what changed since the last submittal'.",
+        "Compares the active drawing without modifying anything. 'drawing' reads another DWG as a side database (never opened as a document) and reports added/removed/modified entities by type and layer plus Civil 3D object changes (alignment length/geometry hash, profile PVIs, surface statistics, pipe counts/inverts). 'snapshot' writes a JSON fingerprint of the current drawing to an allowed export folder (approval required, overwrite defaults to false); 'compare_snapshot' diffs the current drawing against such a snapshot, e.g. 'what changed since the last submittal'. snapshot writes through the plugin's export roots and compare_snapshot reads through its import roots, so when CIVIL3D_EXPORT_ROOTS and CIVIL3D_IMPORT_ROOTS differ, write snapshots to a folder covered by both.",
       inputShape: {
         action: z.enum(COMPARE_ACTIONS),
         otherPath: z.string().optional(),

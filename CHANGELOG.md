@@ -20,7 +20,7 @@
 - `civil3d_project data_shortcut_references` (read-only) lists the
   data-shortcut references in the current drawing with source drawing, source
   object name/type/handle, where the source is relative to the working folder
-  and current project, and `current`/`out_of_date`/`broken`/`source_missing`
+  and current project, and `current`/`out_of_date`/`broken`/`source_missing`/`unknown`
   status, all from `Entity.GetReferenceInfo()` and the `IsReference*` flags.
   `data_shortcut_repair` (needs approval) repoints a reference to a new source
   drawing through `DataShortcuts.RepairBrokenDRef`, resolved at runtime from

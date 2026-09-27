@@ -486,6 +486,9 @@ public static class XrefCommands
       return "absolute";
     }
 
+    // AutoCAD saves a same-folder relative xref as ".\base.dwg"; a bare
+    // "base.dwg" is its "No path" option (found through the host folder and
+    // the support search paths), reported here as "none".
     return path.Contains('\\') || path.Contains('/') || path.StartsWith('.') ? "relative" : "none";
   }
 

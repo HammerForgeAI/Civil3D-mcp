@@ -69,6 +69,7 @@ describe("civil3d_compare domain", () => {
         modified: [{ handle: "1A", type: "LINE", layer: "C-ROAD", space: "Model", previousLayer: "0" }],
       },
       civil: {
+        truncated: false,
         byKind: [{ kind: "alignment", baseline: 1, current: 1, added: 0, removed: 0, modified: 1 }],
         added: [],
         removed: [],
