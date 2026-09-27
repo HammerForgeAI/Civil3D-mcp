@@ -466,6 +466,8 @@ describe("domain manifest migration", () => {
     expect(drawing!.operations).toContain("list_object_types");
     expect(drawing!.operations).toContain("list_open_documents");
     expect(drawing!.operations).toContain("set_active_document");
+    expect(drawing!.operations).toContain("get_system_variable");
+    expect(drawing!.operations).toContain("set_system_variable");
 
     expect(coordinateSystem).toBeDefined();
     expect(coordinateSystem!.operations).toContain("transform");

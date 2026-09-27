@@ -194,6 +194,8 @@ describe("Tool Catalog", () => {
       "acad_insert_block_reference",
       "acad_list_open_documents",
       "acad_set_active_document",
+      "acad_get_system_variable",
+      "acad_set_system_variable",
     ];
 
     for (const toolName of requiredTools) {

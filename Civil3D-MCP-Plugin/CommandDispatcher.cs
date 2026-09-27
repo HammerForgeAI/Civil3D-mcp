@@ -30,6 +30,8 @@ public static class CommandDispatcher
       "saveDrawing" => DrawingCommands.SaveDrawingAsync(parameters),
       "undoDrawing" => DrawingCommands.UndoDrawingAsync(parameters),
       "redoDrawing" => DrawingCommands.RedoDrawingAsync(parameters),
+      "getSystemVariable" => SystemVariableCommands.GetSystemVariableAsync(parameters),
+      "setSystemVariable" => SystemVariableCommands.SetSystemVariableAsync(parameters),
       "createPolyline" => AcadCommands.CreatePolylineAsync(parameters),
       "createText" => AcadCommands.CreateTextAsync(parameters),
       "create3dPolyline" => AcadCommands.Create3dPolylineAsync(parameters),
