@@ -10,9 +10,13 @@
   `attach`, `overlay`, `detach`, `reload`, `unload`, `bind` (`bind`/`insert`)
   and `repath` (`absolute`/`relative`) change xrefs and need approval. Every
   caller path goes through `FileBoundary` (import roots, `.dwg` only, must
-  exist). Reload, unload, bind, and detach run under the document lock with no
-  enclosing transaction, through the new
-  `CivilExecution.ExecuteLockedWithoutTransactionAsync`.
+  exist). Unload and detach run under the document lock with no enclosing
+  transaction, through the new
+  `CivilExecution.ExecuteLockedWithoutTransactionAsync`. Reload (including
+  `repath`'s reload) and bind run the `-XREF` command through the new
+  `CivilExecution.ExecuteCommandSequenceAsync`: on Civil 3D 2027,
+  `Database.ReloadXrefs` and `BindXrefs` did their work but never returned
+  control to the plugin's command context. Verified live against Civil 3D 2027.
 - `civil3d_project data_shortcut_references` (read-only) lists the
   data-shortcut references in the current drawing with source drawing, source
   object name/type/handle, where the source is relative to the working folder

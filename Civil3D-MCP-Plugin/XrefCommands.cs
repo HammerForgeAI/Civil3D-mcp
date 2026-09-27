@@ -3,6 +3,7 @@ using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using AcRuntimeException = Autodesk.AutoCAD.Runtime.Exception;
+using App = Autodesk.AutoCAD.ApplicationServices.Application;
 
 namespace Civil3DMcpPlugin;
 
@@ -10,9 +11,12 @@ namespace Civil3DMcpPlugin;
 /// External reference (xref) management for the active drawing.
 ///
 /// Reads use the xref graph inside a read-only transaction. Mutations that the
-/// AutoCAD database performs with its own internal transactions (reload,
-/// unload, bind, detach) run under the document lock WITHOUT an enclosing
-/// transaction via <see cref="CivilExecution.ExecuteLockedWithoutTransactionAsync{T}"/>.
+/// AutoCAD database performs with its own internal transactions (unload,
+/// detach) run under the document lock WITHOUT an enclosing transaction via
+/// <see cref="CivilExecution.ExecuteLockedWithoutTransactionAsync{T}"/>. Reload
+/// (including repath's reload) and bind go through the -XREF command instead,
+/// because Database.ReloadXrefs / BindXrefs never return control to the
+/// command context (verified live on Civil 3D 2027).
 /// Every caller-supplied path passes <see cref="FileBoundary.ResolveImportPath"/>
 /// (canonicalized, inside CIVIL3D_IMPORT_ROOTS, .dwg only, must exist).
 /// </summary>
@@ -73,12 +77,32 @@ public static class XrefCommands
   public static Task<object?> ReloadXrefsAsync(JsonObject? parameters)
   {
     var names = RequireNames(parameters);
+    return ReloadViaCommandLineAsync(names, "reload");
+  }
 
-    return CivilExecution.ExecuteLockedWithoutTransactionAsync<object?>((doc, civilDoc, database) =>
+  // Database.ReloadXrefs from the plugin's command context reloads the xref but
+  // never returns control (live on Civil 3D 2027: the xref showed "loaded" while
+  // the request hung until the 120 s timeout, every time). Reload through the
+  // -XREF command instead, on the command-sequence path.
+  private static Task<object?> ReloadViaCommandLineAsync(List<string> names, string operation, Action<Dictionary<string, object?>>? decorate = null)
+  {
+    return CivilExecution.ExecuteCommandSequenceAsync<object?>(async (doc, cancellationToken) =>
     {
-      var targets = ResolveXrefTargets(database, names);
-      RunBatch(() => database.ReloadXrefs(ToCollection(targets)), "reload");
-      return BuildStatusResult("reload", database, targets);
+      List<XrefTarget> targets;
+      using (doc.LockDocument())
+      {
+        targets = ResolveXrefTargets(doc.Database, names);
+      }
+
+      cancellationToken.ThrowIfCancellationRequested();
+      await CommandLineRunner.RunAsync(doc, "XREF", "_.-XREF", "_Reload", string.Join(",", targets.Select(target => target.Name)));
+
+      using (doc.LockDocument())
+      {
+        var status = BuildStatusResult(operation, doc.Database, targets);
+        decorate?.Invoke(status);
+        return (object?)status;
+      }
     });
   }
 
@@ -103,12 +127,16 @@ public static class XrefCommands
       throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "bindType must be 'bind' (keeps xref-dependent symbol prefixes) or 'insert' (merges symbols like INSERT).");
     }
 
-    return CivilExecution.ExecuteLockedWithoutTransactionAsync<object?>((doc, civilDoc, database) =>
+    // Like ReloadXrefs, Database.BindXrefs completes but never returns control to
+    // the command context (live on Civil 3D 2027), so bind runs through -XREF.
+    return CivilExecution.ExecuteCommandSequenceAsync<object?>(async (doc, cancellationToken) =>
     {
-      var targets = ResolveXrefTargets(database, names);
-
+      var database = doc.Database;
+      List<XrefTarget> targets;
+      using (doc.LockDocument())
       using (var transaction = database.TransactionManager.StartOpenCloseTransaction())
       {
+        targets = ResolveXrefTargets(database, names);
         foreach (var target in targets)
         {
           var btr = (BlockTableRecord)transaction.GetObject(target.Id, OpenMode.ForRead);
@@ -121,9 +149,19 @@ public static class XrefCommands
         }
       }
 
-      RunBatch(() => database.BindXrefs(ToCollection(targets), bindType == "insert"), "bind");
+      cancellationToken.ThrowIfCancellationRequested();
+      var previousBindType = App.GetSystemVariable("BINDTYPE");
+      try
+      {
+        App.SetSystemVariable("BINDTYPE", bindType == "insert" ? (short)1 : (short)0);
+        await CommandLineRunner.RunAsync(doc, "XREF", "_.-XREF", "_Bind", string.Join(",", targets.Select(target => target.Name)));
+      }
+      finally
+      {
+        App.SetSystemVariable("BINDTYPE", previousBindType);
+      }
 
-      return new Dictionary<string, object?>
+      return (object?)new Dictionary<string, object?>
       {
         ["operation"] = "bind",
         ["bindType"] = bindType,
@@ -146,7 +184,13 @@ public static class XrefCommands
     var reload = PluginRuntime.GetOptionalBool(parameters, "reload") ?? true;
     var newPath = FileBoundary.ResolveImportPath(rawPath, ".dwg");
 
-    return CivilExecution.ExecuteLockedWithoutTransactionAsync<object?>((doc, civilDoc, database) =>
+    return RepathThenMaybeReloadAsync(name, newPath, pathType, reload);
+  }
+
+  private static async Task<object?> RepathThenMaybeReloadAsync(string name, string newPath, string pathType, bool reload)
+  {
+    // Phase 1: change the stored path (no reload; see ReloadViaCommandLineAsync).
+    var repathed = await CivilExecution.ExecuteLockedWithoutTransactionAsync((doc, civilDoc, database) =>
     {
       var target = ResolveXrefTargets(database, new List<string> { name }).Single();
       RejectSelfReference(database, newPath);
@@ -161,19 +205,26 @@ public static class XrefCommands
         transaction.Commit();
       }
 
-      if (reload)
-      {
-        RunBatch(() => database.ReloadXrefs(ToCollection(new List<XrefTarget> { target })), "reload");
-      }
+      return (target, previousPath, storedPath, status: BuildStatusResult("repath", database, new List<XrefTarget> { target }));
+    });
 
-      var status = BuildStatusResult("repath", database, new List<XrefTarget> { target });
-      status["previousPath"] = previousPath;
-      status["storedPath"] = storedPath;
+    void Decorate(Dictionary<string, object?> status)
+    {
+      status["previousPath"] = repathed.previousPath;
+      status["storedPath"] = repathed.storedPath;
       status["resolvedTarget"] = newPath;
       status["pathType"] = pathType;
       status["reloaded"] = reload;
-      return status;
-    });
+    }
+
+    if (!reload)
+    {
+      Decorate(repathed.status);
+      return repathed.status;
+    }
+
+    // Phase 2: reload through -XREF.
+    return await ReloadViaCommandLineAsync(new List<string> { repathed.target.Name }, "repath", Decorate);
   }
 
   // ---------------------------------------------------------------------------
