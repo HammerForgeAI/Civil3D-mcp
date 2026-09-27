@@ -248,17 +248,102 @@ internal static class FileBoundary
   }
 
   /// <summary>
-  /// Creates (if needed) and locks the directory chain of an export path that
-  /// was already resolved by <see cref="ResolveExportPath"/>, for writers that
-  /// are not this class (for example the AutoCAD plotter writing a PDF). While
-  /// the returned handle is held, no segment of the chain can be swapped for a
-  /// junction; files can still be created inside it.
+  /// Starts an output written by an external writer (for example the AutoCAD
+  /// plotter) to an export path already resolved by <see cref="ResolveExportPath"/>.
+  /// The directory chain is created and locked (while it is held, no segment of
+  /// the chain can be deleted or swapped for a junction; files can still be
+  /// created inside it), and the writer is pointed at
+  /// <see cref="ExternalWriterOutput.TempPath"/>: an unpredictable hidden name in
+  /// the same directory that nothing else can pre-create as a link. After the
+  /// writer finishes, <see cref="ExternalWriterOutput.Commit"/> checks the file
+  /// is a regular file and renames it over the final name, so a link planted at
+  /// the final name after validation is replaced rather than written through.
   /// </summary>
-  public static IDisposable LockExportDirectoryForExternalWriter(string resolvedPath)
+  public static ExternalWriterOutput BeginExternalWrite(string resolvedPath, bool overwrite)
   {
     var directory = Path.GetDirectoryName(resolvedPath)
       ?? throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "Output path must include a directory.");
-    return LockExportDirectoryChain(directory);
+    var directoryLock = LockExportDirectoryChain(directory);
+    var extension = Path.GetExtension(resolvedPath);
+    var tempPath = Path.Combine(
+      Path.GetDirectoryName(Path.GetFullPath(resolvedPath))!,
+      $".{Path.GetFileNameWithoutExtension(resolvedPath)}.{Guid.NewGuid():N}.mcp-tmp{extension}");
+    return new ExternalWriterOutput(Path.GetFullPath(resolvedPath), tempPath, overwrite, directoryLock);
+  }
+
+  internal sealed class ExternalWriterOutput : IDisposable
+  {
+    private readonly bool _overwrite;
+    private IDisposable? _directoryLock;
+
+    internal ExternalWriterOutput(string finalPath, string tempPath, bool overwrite, IDisposable directoryLock)
+    {
+      FinalPath = finalPath;
+      TempPath = tempPath;
+      _overwrite = overwrite;
+      _directoryLock = directoryLock;
+    }
+
+    public string FinalPath { get; }
+
+    public string TempPath { get; }
+
+    /// <summary>Moves the finished temporary file onto the final name.</summary>
+    public void Commit()
+    {
+      if (_directoryLock == null)
+      {
+        throw new ObjectDisposedException(nameof(ExternalWriterOutput));
+      }
+
+      try
+      {
+        if ((File.GetAttributes(TempPath) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
+        {
+          throw new JsonRpcDispatchException(
+            "CIVIL3D.PATH_NOT_ALLOWED",
+            $"The external writer's output '{TempPath}' is not a regular file.");
+        }
+
+        // A rename replaces the destination entry itself; it never follows a
+        // link planted at the final name.
+        File.Move(TempPath, FinalPath, _overwrite);
+      }
+      catch (JsonRpcDispatchException)
+      {
+        throw;
+      }
+      catch (IOException) when (!_overwrite && File.Exists(FinalPath))
+      {
+        throw new JsonRpcDispatchException(
+          "CIVIL3D.CONFLICT",
+          $"Output file already exists: {FinalPath}. Set overwrite=true to replace it explicitly.");
+      }
+      catch (Exception exception)
+      {
+        throw new JsonRpcDispatchException(
+          "CIVIL3D.FILE_IO_ERROR",
+          $"Could not move the finished output to '{FinalPath}' (is it open in another program?): {exception.Message}");
+      }
+    }
+
+    public void Dispose()
+    {
+      try
+      {
+        if (File.Exists(TempPath))
+        {
+          File.Delete(TempPath);
+        }
+      }
+      catch
+      {
+        // A leftover temp file has a hidden, collision-resistant name.
+      }
+
+      _directoryLock?.Dispose();
+      _directoryLock = null;
+    }
   }
 
   private static string NormalizeExtension(string extension) =>

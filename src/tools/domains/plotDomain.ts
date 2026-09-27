@@ -112,9 +112,13 @@ const ListPageSetupsArgsSchema = z.object({
   action: z.literal("list_page_setups"),
 });
 
+// The plugin treats a whitespace-only override as absent, so reject it here
+// instead of silently plotting with the layout's own settings.
+const NonBlankStringSchema = z.string().refine((value) => value.trim().length > 0, "must not be blank");
+
 const ListPlottersArgsSchema = z.object({
   action: z.literal("list_plotters"),
-  device: z.string().min(1).optional(),
+  device: NonBlankStringSchema.optional(),
 });
 
 export const PlotLayoutsToPdfArgsSchema = z.object({
@@ -124,9 +128,9 @@ export const PlotLayoutsToPdfArgsSchema = z.object({
   outputDirectory: z.string().min(1).optional(),
   outputPath: z.string().min(1).optional(),
   fileNamePrefix: z.string().optional(),
-  pageSetup: z.string().min(1).optional(),
-  paperSize: z.string().min(1).optional(),
-  plotStyleTable: z.string().min(1).optional(),
+  pageSetup: NonBlankStringSchema.optional(),
+  paperSize: NonBlankStringSchema.optional(),
+  plotStyleTable: NonBlankStringSchema.optional(),
   orientation: OrientationSchema.optional(),
   overwrite: z.boolean().optional(),
   continueOnError: z.boolean().optional(),

@@ -25,6 +25,14 @@ import { GENERATED_TOOL_CATALOG_ENTRIES, findManifestAction } from "../src/tools
 const pluginSource = (fileName: string) =>
   readFileSync(new URL(`../Civil3D-MCP-Plugin/${fileName}`, import.meta.url), "utf8");
 
+// C# source with comments and string literals removed, so guards match code
+// only (the file documents why it avoids PlotEngine in comments).
+const pluginCode = (fileName: string) =>
+  pluginSource(fileName)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "")
+    .replace(/@?\$?"(?:[^"\\\r\n]|\\.)*"/g, '""');
+
 function approvalTargetFor(action: string) {
   const match = findManifestAction("civil3d_plot", action);
   expect(match, `civil3d_plot action ${action} is registered`).toBeDefined();
@@ -70,6 +78,10 @@ describe("civil3d_plot schemas", () => {
       { allLayouts: true, outputPath: "C:/out/a.pdf" },
       { layoutNames: ["C-101"], outputPath: "C:/out/a.dwg" },
       { layoutNames: ["C-101"], outputDirectory: "C:/out", orientation: "sideways" },
+      // Whitespace-only overrides would be ignored by the plugin.
+      { layoutNames: ["C-101"], outputDirectory: "C:/out", pageSetup: "   " },
+      { layoutNames: ["C-101"], outputDirectory: "C:/out", paperSize: " " },
+      { layoutNames: ["C-101"], outputDirectory: "C:/out", plotStyleTable: "\t" },
     ];
     for (const args of invalid) {
       expect(
@@ -77,6 +89,9 @@ describe("civil3d_plot schemas", () => {
         JSON.stringify(args),
       ).toBe(false);
     }
+    const listPlotters = PLOT_DOMAIN_DEFINITION.actions.list_plotters.inputSchema;
+    expect(listPlotters.safeParse({ action: "list_plotters", device: "DWG To PDF.pc3" }).success).toBe(true);
+    expect(listPlotters.safeParse({ action: "list_plotters", device: "  " }).success).toBe(false);
   });
 
   it("validates publish_sheet_set sheet lists and the PDF output path", () => {
@@ -249,7 +264,41 @@ describe("civil3d_plot native implementation guards", () => {
     expect(source).toContain('"_.-PUBLISH"');
     expect(source).toContain('sysvars.Set("BACKGROUNDPLOT", 0)');
     expect(source).toContain('sysvars.Set("FILEDIA", 0)');
-    expect(source).not.toMatch(/PlotFactory\.\w|new PlotEngine|PlotEngine\s+\w+\s*=|\.SetPlotCentered\(/);
+    expect(source).toContain("CommandLineRunner.RunAsync(");
+    expect(source).toContain("CivilExecution.ExecuteCommandSequenceAsync<object?>(");
+    // Any use of the plot API in code, however qualified or spaced, fails the
+    // guard; the comments explaining the decision do not.
+    const code = pluginCode("PlotCommands.cs");
+    expect(code).toContain("PlotSettingsValidator.Current");
+    expect(code).not.toMatch(/\b(?:PlotFactory|PlotEngine|BackgroundPlotEngine|PreviewEngine|SetPlotCentered)\b/);
+  });
+
+  it("lets the plotter write only to a staged temp file that is renamed into place", () => {
+    const source = pluginSource("PlotCommands.cs");
+    const boundary = pluginSource("FileBoundary.cs");
+    expect(source).toContain("FileBoundary.BeginExternalWrite(job.OutputPath!, overwrite)");
+    expect(source).toContain("FileBoundary.BeginExternalWrite(outputPath, overwrite)");
+    expect(source).toContain("output.TempPath,              // File name");
+    expect(source).toContain("BuildDsd(sheets, currentPath, output.TempPath)");
+    expect(source).not.toContain("LockExportDirectoryForExternalWriter");
+    expect(boundary).toContain("File.Move(TempPath, FinalPath, _overwrite)");
+    expect(boundary).toContain("FileAttributes.ReparsePoint | FileAttributes.Directory");
+  });
+
+  it("refuses to feed a new command into a prompt an earlier request left open", () => {
+    const runner = pluginSource("CommandLineRunner.cs");
+    const run = runner.slice(runner.indexOf("internal static async Task RunAsync"));
+    const staleCheck = run.indexOf("FindActiveCommand(DrivenCommandsSnapshot())");
+    expect(staleCheck).toBeGreaterThan(-1);
+    expect(staleCheck).toBeLessThan(run.indexOf("await doc.Editor.CommandAsync(tokens)"));
+    expect(run.indexOf("FindActiveCommand([commandName])")).toBeGreaterThan(run.indexOf("await doc.Editor.CommandAsync(tokens)"));
+  });
+
+  it("skips or rejects never-initialized layouts before publishing", () => {
+    const source = pluginSource("PlotCommands.cs");
+    expect(source).toContain("layout.GetViewports().Count > 0");
+    expect(source).toContain("currentLayouts.Where(layout => layout.Initialized)");
+    expect(source.match(/RequireInitialized\(match\);/g)?.length).toBe(2);
   });
 
   it("routes every output path through FileBoundary and fails fast without a document", () => {

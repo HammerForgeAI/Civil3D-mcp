@@ -38,18 +38,62 @@ try
   Assert(File.ReadAllText(writtenPath, Encoding.UTF8) == "replacement", "Explicit overwrite did not replace content.");
 
   // External writers (the AutoCAD plotter) get a created, locked directory
-  // chain for a path that already passed ResolveExportPath.
+  // chain for a path that already passed ResolveExportPath, write to a hidden
+  // temporary name in it, and the result is renamed over the final name.
   var plotOutput = FileBoundary.ResolveExportPath(
     Path.Combine(allowedRoot, "plots", "sheets", "C-101.pdf"), overwrite: false, ".pdf");
-  using (FileBoundary.LockExportDirectoryForExternalWriter(plotOutput))
+  using (var external = FileBoundary.BeginExternalWrite(plotOutput, overwrite: false))
   {
     Assert(Directory.Exists(Path.GetDirectoryName(plotOutput)!), "Plot output directory was not created.");
-    File.WriteAllText(plotOutput, "%PDF-1.7");
-    Assert(File.Exists(plotOutput), "A file could not be written inside the locked plot directory.");
+    Assert(Path.GetDirectoryName(external.TempPath) == Path.GetDirectoryName(plotOutput), "Temp output is not beside the final output.");
+    Assert(external.TempPath != plotOutput && external.TempPath.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase), "Temp output name is not a distinct .pdf name.");
+    Assert(!File.Exists(external.TempPath), "Temp output name was pre-created.");
+
+    // The lock must stop any segment of the chain being renamed or deleted
+    // (and so swapped for a junction) while the external writer runs.
+    var chainBlocked = false;
+    try
+    {
+      Directory.Move(Path.Combine(allowedRoot, "plots"), Path.Combine(allowedRoot, "plots-moved"));
+    }
+    catch (IOException)
+    {
+      chainBlocked = true;
+    }
+    catch (UnauthorizedAccessException)
+    {
+      chainBlocked = true;
+    }
+    Assert(chainBlocked, "The locked directory chain could be renamed while the writer lock was held.");
+
+    // Nested boundary writes (the publish DSD) still work under the lock.
+    FileBoundary.WriteAllTextAtomic(Path.Combine(allowedRoot, "plots", "sheets", "C-101.mcp-publish.dsd"), "[DWF6Version]", Encoding.UTF8, overwrite: true, ".dsd");
+
+    File.WriteAllText(external.TempPath, "%PDF-1.7");
+    Assert(!File.Exists(plotOutput), "Final output appeared before commit.");
+    external.Commit();
+    Assert(File.ReadAllText(plotOutput) == "%PDF-1.7", "Commit did not move the written file to the final name.");
+    Assert(!File.Exists(external.TempPath), "Commit left the temp output behind.");
   }
   ExpectCode(
     "CIVIL3D.CONFLICT",
     () => FileBoundary.ResolveExportPath(plotOutput, overwrite: false, ".pdf"));
+
+  // A file that appears at the final name after validation is not replaced
+  // without overwrite, and a failed external write leaves no temp file.
+  using (var external = FileBoundary.BeginExternalWrite(plotOutput, overwrite: false))
+  {
+    File.WriteAllText(external.TempPath, "%PDF-1.7 second");
+    ExpectCode("CIVIL3D.CONFLICT", () => external.Commit());
+  }
+  Assert(File.ReadAllText(plotOutput) == "%PDF-1.7", "A commit without overwrite replaced an existing file.");
+  Assert(!Directory.EnumerateFiles(Path.GetDirectoryName(plotOutput)!, ".*.mcp-tmp.pdf").Any(), "A failed external write left its temp file.");
+  using (var external = FileBoundary.BeginExternalWrite(plotOutput, overwrite: true))
+  {
+    File.WriteAllText(external.TempPath, "%PDF-1.7 replaced");
+    external.Commit();
+  }
+  Assert(File.ReadAllText(plotOutput) == "%PDF-1.7 replaced", "An overwrite commit did not replace the existing file.");
   ExpectCode(
     "CIVIL3D.FILE_TYPE_NOT_ALLOWED",
     () => FileBoundary.ResolveExportPath(Path.Combine(allowedRoot, "plots", "C-101.dwg"), false, ".pdf"));

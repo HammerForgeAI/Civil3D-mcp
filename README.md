@@ -707,19 +707,29 @@ one or more operations; alias rows show an em dash in the **Operations** column.
 
 Read-only actions are never approval-gated. `plot_layouts_to_pdf` and
 `publish_sheet_set` declare the `export` capability, so they need a
-`civil3d_request_approval` token; output paths must be absolute `.pdf` paths
-under `CIVIL3D_EXPORT_ROOTS` and existing files are only replaced with
-`overwrite: true`. Pass `asJob: true` to run either as a `civil3d_job` and poll
-`civil3d_job action=status`. Results list every file written with its size,
-page count (when detectable), and per-layout status.
+`civil3d_request_approval` token. `outputPath` (a single layout, or the
+combined `publish_sheet_set` PDF) must be an absolute `.pdf` file path;
+`outputDirectory` is an absolute folder in which one `<prefix><layout>.pdf` is
+written per layout. Both must sit under `CIVIL3D_EXPORT_ROOTS` (which falls
+back to `CIVIL3D_FILE_ROOTS`, then the user's Documents folder), and existing
+files are only replaced with `overwrite: true`. Pass `asJob: true` to run
+either as a `civil3d_job` and poll `civil3d_job action=status`. Results list
+every file written with its size, page count (when detectable), and
+per-layout status. `publish_sheet_set` without a sheet list skips (and
+reports) layouts that have never been initialized, because PUBLISH refuses
+them.
 
+Plotting was developed and live-tested on Civil 3D 2027 only; it is not yet
+verified live on the Civil 3D 2026 baseline this README otherwise targets.
 Why commands rather than the PlotEngine API: live testing on Civil 3D 2027
 found `PlotFactory`/`PlotEngine` crash-prone when driven from a command
 context (the context this plugin runs in), while `-PLOT` with
 `BACKGROUNDPLOT=0` fails with a message instead of taking the host down. The
 plugin validates every answer before starting the command, never saves page
-setup changes, restores `FILEDIA`/`CMDECHO`/`BACKGROUNDPLOT`/`CTAB`, and
-verifies the PDF was actually written. `publish_sheet_set` reads drawings from
+setup changes, restores `FILEDIA`/`CMDECHO`/`BACKGROUNDPLOT`/`CTAB`, has the
+plotter write a hidden temporary file in the locked output folder, and
+verifies it before renaming it over the requested name (so a failed plot
+never deletes an existing PDF). `publish_sheet_set` reads drawings from
 disk, so it refuses an unsaved active drawing unless `requireSaved: false`.
 
 </details>
