@@ -379,22 +379,37 @@ public static class DrawingCommands
     return count;
   }
 
-  // Single-field coordinate system code (for getDrawingInfo).
+  // Single-field coordinate system code (for getDrawingInfo and
+  // getDrawingUnits). Returns the raw stored code without looking it up in
+  // the coordinate-system library, so a stale or unsupported code cannot fail
+  // an otherwise unrelated read.
   private static string? ReadCoordinateSystemCode(CivilDocument civilDoc)
   {
-    return ReadCoordinateSystemFields(civilDoc).code;
+    var code = civilDoc.Settings.DrawingSettings.UnitZoneSettings.CoordinateSystemCode;
+    return string.IsNullOrWhiteSpace(code) ? null : code;
   }
 
   private static (string? code, string? zone, string? datum, string? verticalDatum) ReadCoordinateSystemFields(CivilDocument civilDoc)
   {
-    var unitZone = civilDoc.Settings.DrawingSettings.UnitZoneSettings;
-    var code = unitZone.CoordinateSystemCode;
-    if (string.IsNullOrWhiteSpace(code))
+    var code = ReadCoordinateSystemCode(civilDoc);
+    if (code is null)
     {
       return (null, null, null, null);
     }
 
-    var coordinateSystem = SettingsUnitZone.GetCoordinateSystemByCode(code);
-    return (code, coordinateSystem.Category, coordinateSystem.Datum, null);
+    // The library lookup fails for a code the installed coordinate-system
+    // library does not know (stale or custom); keep the raw code and leave the
+    // derived fields null instead of failing the whole settings read.
+    try
+    {
+      var coordinateSystem = SettingsUnitZone.GetCoordinateSystemByCode(code);
+      return coordinateSystem is null
+        ? (code, null, null, null)
+        : (code, coordinateSystem.Category, coordinateSystem.Datum, null);
+    }
+    catch (Exception exception) when (exception is not JsonRpcDispatchException)
+    {
+      return (code, null, null, null);
+    }
   }
 }

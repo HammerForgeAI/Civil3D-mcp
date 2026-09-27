@@ -416,13 +416,18 @@ public static class PipeNetworkCommands
     var start = pipe.StartPoint;
     var end = pipe.EndPoint;
     // The managed Pipe API has no invert property. StartPoint/EndPoint are
-    // centreline points, so invert = centreline - inner height / 2 (inner
-    // height equals the inner diameter for circular pipes).
+    // centreline points, so invert = centreline - inner height / 2.
     // Part-family-specific properties (outer size, wall thickness, shape) are
     // read defensively: Civil 3D throws CivilException "Retrieve attribute
     // failed" for attributes a part does not define, and one bad attribute
     // should not fail the whole network read.
-    var innerHeight = SafeDouble(() => pipe.InnerHeight) is > 0 and var h ? h : pipe.InnerDiameterOrWidth;
+    // When InnerHeight is unavailable, InnerDiameterOrWidth is a valid height
+    // only for a circular section; for any other (or unreadable) shape the
+    // height, inverts and crowns are left null rather than guessed.
+    var shape = SafeText(() => pipe.CrossSectionalShape.ToString());
+    double? innerHeight = SafeDouble(() => pipe.InnerHeight) is > 0 and var h
+      ? h
+      : string.Equals(shape, "Circular", StringComparison.Ordinal) ? pipe.InnerDiameterOrWidth : null;
     var halfHeight = innerHeight / 2.0;
 
     return new Dictionary<string, object?>
@@ -447,13 +452,13 @@ public static class PipeNetworkCommands
       ["endInvert"] = end.Z - halfHeight,
       ["startCrown"] = start.Z + halfHeight,
       ["endCrown"] = end.Z + halfHeight,
-      ["invertSource"] = "centerline - innerHeight/2",
+      ["invertSource"] = innerHeight is null ? null : "centerline - innerHeight/2",
       ["innerDiameter"] = pipe.InnerDiameterOrWidth,
       ["outerDiameter"] = SafeDouble(() => pipe.OuterDiameterOrWidth),
       ["innerHeight"] = innerHeight,
       ["outerHeight"] = SafeDouble(() => pipe.OuterHeight),
       ["wallThickness"] = SafeDouble(() => pipe.WallThickness),
-      ["crossSectionalShape"] = SafeText(() => pipe.CrossSectionalShape.ToString()),
+      ["crossSectionalShape"] = shape,
       ["length2d"] = SafeDouble(() => pipe.Length2D),
     };
   }

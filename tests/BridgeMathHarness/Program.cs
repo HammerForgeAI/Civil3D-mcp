@@ -64,6 +64,13 @@ var shuffled = new List<Segment> { lot[2], lot[0].Reversed(), lot[3], lot[1] };
 var chained = BridgeMath.ChainClosed(shuffled, 1e-6);
 Assert(chained != null && chained.Count == 4, "shuffled lot should chain");
 Near(Math.Abs(BridgeMath.SignedArea(chained!)), 400 + segmentArea, "chained area magnitude preserved");
+// The arc arrives reversed, so ChainClosed must flip it back: its bulge sign
+// has to be negated with the endpoints or the arc would bow inward.
+var arcReversed = new List<Segment> { lot[0], lot[2].Reversed(), lot[3], lot[1] };
+var chainedArc = BridgeMath.ChainClosed(arcReversed, 1e-6);
+Assert(chainedArc != null && chainedArc.Count == 4, "lot with a reversed arc should chain");
+Assert(chainedArc![2] == lot[2], "reversed arc should be restored to its original direction and bulge");
+Near(BridgeMath.SignedArea(chainedArc), 400 + segmentArea, "reversed-arc chain keeps the CCW area including the arc segment");
 Assert(BridgeMath.ChainClosed(new List<Segment> { lot[0], lot[1], lot[2] }, 1e-6) == null, "open chain must be rejected");
 // Zero-length segments (duplicate vertices) are dropped.
 var withDup = new List<Segment>(square) { new(0, 0, 0, 0, 0) };

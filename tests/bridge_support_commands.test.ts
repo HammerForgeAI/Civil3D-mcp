@@ -107,7 +107,10 @@ describe("bridge-support commands", () => {
       });
       expect(parsed.vertices[0]).toEqual({ x: 6012345.123457, y: 2012345.987654, z: 101.25 });
       expect(parsed.truncated).toBe(true);
-      expect(SurfaceTinVerticesResponseSchema.safeParse({ surfaceName: "EG", surfaceType: "TINVolume", vertices: [] }).success).toBe(false);
+      // Every other required field is valid, so only the surfaceType enum can reject it.
+      const volumeResponse = { surfaceName: "EG", surfaceType: "TINVolume", vertices: [], totalVertexCount: 0, returnedVertexCount: 0, truncated: false, maxPoints: 50_000, decimation: "none", boundaryApplied: false };
+      expect(SurfaceTinVerticesResponseSchema.safeParse(volumeResponse).success).toBe(false);
+      expect(SurfaceTinVerticesResponseSchema.safeParse({ ...volumeResponse, surfaceType: "TIN" }).success).toBe(true);
     });
 
     it("emits every field the bridge adapter consumes", () => {
@@ -241,6 +244,21 @@ describe("bridge-support commands", () => {
       for (const key of ["startPoint", "endPoint", "startInvert", "endInvert", "innerDiameter", "outerDiameter", "diameter", "centerlineStartElevation"]) {
         expect(body).toContain(`["${key}"]`);
       }
+      // InnerDiameterOrWidth stands in for a missing InnerHeight only on circular sections.
+      expect(body).toContain('string.Equals(shape, "Circular", StringComparison.Ordinal) ? pipe.InnerDiameterOrWidth : null');
+      expect(body).not.toMatch(/\?\s*h\s*:\s*pipe\.InnerDiameterOrWidth;/);
+    });
+  });
+
+  describe("coordinate system code reads", () => {
+    it("never looks up the coordinate-system library for the bare code, and tolerates a failed lookup", () => {
+      const source = pluginSource("DrawingCommands.cs");
+      const codeStart = source.indexOf("private static string? ReadCoordinateSystemCode");
+      const codeBody = source.slice(codeStart, source.indexOf("private static (string? code", codeStart));
+      expect(codeBody).not.toContain("GetCoordinateSystemByCode");
+      const fieldsStart = source.indexOf("private static (string? code, string? zone");
+      const fieldsBody = source.slice(fieldsStart);
+      expect(fieldsBody).toMatch(/try\s*\{\s*var coordinateSystem = SettingsUnitZone\.GetCoordinateSystemByCode\(code\);/);
     });
   });
 });
