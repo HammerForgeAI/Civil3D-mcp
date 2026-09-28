@@ -7,6 +7,14 @@ namespace Civil3DMcpPlugin;
 
 public static class LookupUtils
 {
+  /// <summary>
+  /// Resolves the layer an object should be created on. No name means the
+  /// current layer. A named layer that does not exist yet is CREATED (it used
+  /// to fall back silently to the current layer, which put e.g. a profile
+  /// requested on C-ROAD-DES onto layer 0). Every caller runs inside a
+  /// CivilExecution.WriteAsync transaction, so the new layer is committed with
+  /// the object that uses it. Read-only paths must use <see cref="FindLayerId"/>.
+  /// </summary>
   public static ObjectId GetLayerId(Database database, Transaction transaction, string? layerName)
   {
     if (string.IsNullOrWhiteSpace(layerName))
@@ -14,13 +22,39 @@ public static class LookupUtils
       return database.Clayer;
     }
 
+    var name = layerName.Trim();
     var layerTable = CivilObjectUtils.GetRequiredObject<LayerTable>(transaction, database.LayerTableId, OpenMode.ForRead);
-    if (layerTable.Has(layerName))
+    if (layerTable.Has(name))
     {
-      return layerTable[layerName];
+      return layerTable[name];
     }
 
-    return database.Clayer;
+    try
+    {
+      SymbolUtilityServices.ValidateSymbolName(name, false);
+    }
+    catch (Autodesk.AutoCAD.Runtime.Exception)
+    {
+      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"'{name}' is not a valid layer name.");
+    }
+
+    layerTable.UpgradeOpen();
+    var record = new LayerTableRecord { Name = name };
+    var layerId = layerTable.Add(record);
+    transaction.AddNewlyCreatedDBObject(record, true);
+    return layerId;
+  }
+
+  /// <summary>Non-creating layer lookup for read-only paths: the layer's id, or null when it does not exist.</summary>
+  public static ObjectId? FindLayerId(Database database, Transaction transaction, string? layerName)
+  {
+    if (string.IsNullOrWhiteSpace(layerName))
+    {
+      return null;
+    }
+
+    var layerTable = CivilObjectUtils.GetRequiredObject<LayerTable>(transaction, database.LayerTableId, OpenMode.ForRead);
+    return layerTable.Has(layerName.Trim()) ? layerTable[layerName.Trim()] : null;
   }
 
   public static ObjectId GetSiteId(CivilDocument civilDoc, Transaction transaction, string? siteName)
