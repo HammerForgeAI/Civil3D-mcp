@@ -273,16 +273,24 @@ describe("civil3d_plot native implementation guards", () => {
     expect(code).not.toMatch(/\b(?:PlotFactory|PlotEngine|BackgroundPlotEngine|PreviewEngine|SetPlotCentered)\b/);
   });
 
-  it("lets the plotter write only to a staged temp file that is renamed into place", () => {
+  it("lets the plotter write the final path under the boundary's link checks", () => {
     const source = pluginSource("PlotCommands.cs");
     const boundary = pluginSource("FileBoundary.cs");
     expect(source).toContain("FileBoundary.BeginExternalWrite(job.OutputPath!, overwrite)");
     expect(source).toContain("FileBoundary.BeginExternalWrite(outputPath, overwrite)");
-    expect(source).toContain("output.TempPath,              // File name");
-    expect(source).toContain("BuildDsd(sheets, currentPath, output.TempPath)");
-    expect(source).not.toContain("LockExportDirectoryForExternalWriter");
-    expect(boundary).toContain("File.Move(TempPath, FinalPath, _overwrite)");
-    expect(boundary).toContain("FileAttributes.ReparsePoint | FileAttributes.Directory");
+    // The plotter gets the final name, so "open in viewer when done" opens the
+    // real PDF instead of a temp name that was renamed away.
+    expect(source).toContain("output.FinalPath,             // File name");
+    expect(source).toContain("BuildDsd(sheets, currentPath, outputPath)");
+    expect(source).not.toContain("TempPath");
+    expect(source).toContain("output.Commit(path => VerifyOutput(path, job.StartedUtc))");
+    expect(source).toContain("output.Commit(path => VerifyOutput(path, startedUtc))");
+    // The DSD naming the final PDF is written before the output is staged.
+    const publish = source.slice(source.indexOf("BuildDsd(sheets, currentPath, outputPath)"));
+    expect(publish.indexOf("BeginExternalWrite(outputPath, overwrite)")).toBeGreaterThan(-1);
+    expect(boundary).toContain("FileFlagBackupSemantics | FileFlagOpenReparsePoint");
+    expect(boundary).toContain("links != 1");
+    expect(boundary).not.toContain("mcp-tmp");
   });
 
   it("refuses to feed a new command into a prompt an earlier request left open", () => {

@@ -726,10 +726,13 @@ found `PlotFactory`/`PlotEngine` crash-prone when driven from a command
 context (the context this plugin runs in), while `-PLOT` with
 `BACKGROUNDPLOT=0` fails with a message instead of taking the host down. The
 plugin validates every answer before starting the command, never saves page
-setup changes, restores `FILEDIA`/`CMDECHO`/`BACKGROUNDPLOT`/`CTAB`, has the
-plotter write a hidden temporary file in the locked output folder, and
-verifies it before renaming it over the requested name (so a failed plot
-never deletes an existing PDF). `publish_sheet_set` reads drawings from
+setup changes, restores `FILEDIA`/`CMDECHO`/`BACKGROUNDPLOT`/`CTAB`, and has
+the plotter write the requested PDF directly (so a PDF device's "open in
+viewer when done" opens the real file) while the output folder chain is
+locked. A link at the requested name is refused; with `overwrite` an existing
+PDF is moved to a backup beside it and restored if the plot fails; the result
+must be a regular file (not a link) before it is verified.
+`publish_sheet_set` reads drawings from
 disk, so it refuses an unsaved active drawing unless `requireSaved: false`.
 
 </details>

@@ -18,6 +18,9 @@ internal static class FileBoundary
   private const uint FileFlagBackupSemantics = 0x02000000;
   private const uint FileFlagOpenReparsePoint = 0x00200000;
   private const int FileAttributeTagInfoClass = 9;
+  private const uint FileReadAttributes = 0x0080;
+  private const int ErrorFileNotFound = 2;
+  private const int ErrorPathNotFound = 3;
 
   private static readonly Lazy<string[]> ImportRoots = new(() => LoadRoots(ImportRootsVariable));
   private static readonly Lazy<string[]> ExportRoots = new(() => LoadRoots(ExportRootsVariable));
@@ -248,101 +251,322 @@ internal static class FileBoundary
   }
 
   /// <summary>
-  /// Starts an output written by an external writer (for example the AutoCAD
-  /// plotter) to an export path already resolved by <see cref="ResolveExportPath"/>.
-  /// The directory chain is created and locked (while it is held, no segment of
-  /// the chain can be deleted or swapped for a junction; files can still be
-  /// created inside it), and the writer is pointed at
-  /// <see cref="ExternalWriterOutput.TempPath"/>: an unpredictable hidden name in
-  /// the same directory that nothing else can pre-create as a link. After the
-  /// writer finishes, <see cref="ExternalWriterOutput.Commit"/> checks the file
-  /// is a regular file and renames it over the final name, so a link planted at
-  /// the final name after validation is replaced rather than written through.
+  /// Starts an output written by an external writer (the AutoCAD plotter,
+  /// -PLOT / -PUBLISH) to an export path already resolved by
+  /// <see cref="ResolveExportPath"/>. Call it immediately before starting the
+  /// writer, point the writer at <see cref="ExternalWriterOutput.FinalPath"/>,
+  /// and call <see cref="ExternalWriterOutput.Commit{T}"/> when it finishes.
+  ///
+  /// Why the writer gets the final path. An earlier version had the plotter
+  /// write to a hidden temporary name and renamed it afterwards. That closed
+  /// the link race below completely, but the plotter reports the name it
+  /// wrote to the device's "open in viewer when done" option, so the viewer
+  /// opened the temporary name after it had been renamed away ("file not
+  /// found"). The plotter therefore writes the final name, protected like this:
+  ///
+  /// 1. The directory chain from the export root down is created and locked
+  ///    for the whole write (no segment can be renamed, deleted or swapped for
+  ///    a junction while the lock is held), so the final path stays inside the
+  ///    export roots.
+  /// 2. The final name itself must be absent or a regular file. A symbolic
+  ///    link, junction or directory there is refused (PATH_NOT_ALLOWED /
+  ///    CONFLICT) and left untouched.
+  /// 3. An existing regular file is refused unless overwrite is set; with
+  ///    overwrite it is renamed (never followed) to a backup name beside it,
+  ///    and the name is checked to be absent again. The plotter then creates a
+  ///    new file, which is the only case the -PLOT / -PUBLISH prompt chains
+  ///    have been verified for (they were established with any existing PDF
+  ///    deleted first). A placeholder file held open at the final name
+  ///    would keep the name from being replaced during the write, but whether
+  ///    the PDF driver then prompts, or needs to delete/rename the target, is
+  ///    unverified, so no placeholder is used.
+  /// 4. After the writer finishes, Commit opens the final name without
+  ///    following links and requires a regular file with a single hard link
+  ///    before anything reads it. A symbolic link or an extra hard link
+  ///    planted there during the write is removed (the link, never its target)
+  ///    and the call fails with PATH_NOT_ALLOWED.
+  ///
+  /// Trade-off: between step 3 and the plotter opening the file, a process
+  /// with write access to the export folder could still plant a link at the
+  /// final name; step 4 detects and removes it and fails the call, but a write
+  /// that already went through the link cannot be undone. (Creating a
+  /// symbolic link also needs the symlink privilege; a junction cannot stand
+  /// in for a file.)
+  ///
+  /// A failed or unverified write never destroys the previous file: disposing
+  /// without a successful Commit removes whatever the writer left at the final
+  /// name and renames the backup back. Commit deletes the backup.
   /// </summary>
   public static ExternalWriterOutput BeginExternalWrite(string resolvedPath, bool overwrite)
   {
-    var directory = Path.GetDirectoryName(resolvedPath)
+    var finalPath = Path.GetFullPath(resolvedPath);
+    var directory = Path.GetDirectoryName(finalPath)
       ?? throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "Output path must include a directory.");
     var directoryLock = LockExportDirectoryChain(directory);
-    var extension = Path.GetExtension(resolvedPath);
-    var tempPath = Path.Combine(
-      Path.GetDirectoryName(Path.GetFullPath(resolvedPath))!,
-      $".{Path.GetFileNameWithoutExtension(resolvedPath)}.{Guid.NewGuid():N}.mcp-tmp{extension}");
-    return new ExternalWriterOutput(Path.GetFullPath(resolvedPath), tempPath, overwrite, directoryLock);
+    string? backupPath = null;
+    try
+    {
+      var attributes = GetEntryAttributes(finalPath);
+      if (attributes is FileAttributes existing)
+      {
+        if ((existing & FileAttributes.ReparsePoint) != 0)
+        {
+          throw new JsonRpcDispatchException(
+            "CIVIL3D.PATH_NOT_ALLOWED",
+            $"Filesystem links and junctions are not allowed in caller-supplied paths: {finalPath}");
+        }
+
+        if ((existing & FileAttributes.Directory) != 0)
+        {
+          throw new JsonRpcDispatchException("CIVIL3D.CONFLICT", $"Output path is an existing directory: {finalPath}");
+        }
+
+        if (!overwrite)
+        {
+          throw new JsonRpcDispatchException(
+            "CIVIL3D.CONFLICT",
+            $"Output file already exists: {finalPath}. Set overwrite=true to replace it explicitly.");
+        }
+
+        backupPath = Path.Combine(directory, $".{Path.GetFileName(finalPath)}.{Guid.NewGuid():N}.mcp-bak");
+        try
+        {
+          // A rename moves the directory entry itself; it never follows a link.
+          File.Move(finalPath, backupPath);
+        }
+        catch (Exception exception)
+        {
+          backupPath = null;
+          throw new JsonRpcDispatchException(
+            "CIVIL3D.FILE_IO_ERROR",
+            $"Could not replace '{finalPath}' (is it open in another program?): {exception.Message}");
+        }
+      }
+
+      if (GetEntryAttributes(finalPath) != null)
+      {
+        throw new JsonRpcDispatchException(
+          "CIVIL3D.CONFLICT",
+          $"Output file '{finalPath}' was re-created by another process before the write started.");
+      }
+
+      return new ExternalWriterOutput(finalPath, backupPath, directoryLock);
+    }
+    catch
+    {
+      if (backupPath != null)
+      {
+        TryRestoreBackup(finalPath, backupPath);
+      }
+
+      directoryLock.Dispose();
+      throw;
+    }
   }
 
   internal sealed class ExternalWriterOutput : IDisposable
   {
-    private readonly bool _overwrite;
     private IDisposable? _directoryLock;
+    private bool _committed;
 
-    internal ExternalWriterOutput(string finalPath, string tempPath, bool overwrite, IDisposable directoryLock)
+    internal ExternalWriterOutput(string finalPath, string? backupPath, IDisposable directoryLock)
     {
       FinalPath = finalPath;
-      TempPath = tempPath;
-      _overwrite = overwrite;
+      BackupPath = backupPath;
       _directoryLock = directoryLock;
     }
 
+    /// <summary>The path the external writer must write.</summary>
     public string FinalPath { get; }
 
-    public string TempPath { get; }
+    /// <summary>Where the replaced file waits until Commit (null when there was none).</summary>
+    public string? BackupPath { get; }
 
-    /// <summary>Moves the finished temporary file onto the final name.</summary>
-    public void Commit()
+    /// <summary>
+    /// Verifies the writer's output is a regular, singly-linked file at the
+    /// final name, runs <paramref name="verifyContent"/> on it, and only then
+    /// discards the backup of the replaced file. Any failure leaves the output
+    /// to Dispose, which removes it and restores the backup.
+    /// </summary>
+    public T Commit<T>(Func<string, T> verifyContent)
     {
       if (_directoryLock == null)
       {
         throw new ObjectDisposedException(nameof(ExternalWriterOutput));
       }
 
-      try
+      var entry = InspectEntry(FinalPath);
+      if (entry != null)
       {
-        if ((File.GetAttributes(TempPath) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
+        var (attributes, links) = entry.Value;
+        if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || links != 1)
         {
+          var kind = (attributes & FileAttributes.ReparsePoint) != 0
+            ? "a filesystem link"
+            : (attributes & FileAttributes.Directory) != 0 ? "a directory" : $"a file with {links} hard links";
           throw new JsonRpcDispatchException(
             "CIVIL3D.PATH_NOT_ALLOWED",
-            $"The external writer's output '{TempPath}' is not a regular file.");
+            $"The output at '{FinalPath}' is {kind}, not the regular file the writer should have created; it was removed.");
         }
+      }
 
-        // A rename replaces the destination entry itself; it never follows a
-        // link planted at the final name.
-        File.Move(TempPath, FinalPath, _overwrite);
-      }
-      catch (JsonRpcDispatchException)
+      // A missing file is reported by verifyContent (for example "no PDF was written").
+      var result = verifyContent(FinalPath);
+
+      _committed = true;
+      if (BackupPath != null)
       {
-        throw;
+        try
+        {
+          File.Delete(BackupPath);
+        }
+        catch (Exception exception)
+        {
+          PluginLog.Warn("FileBoundary", $"Could not delete the replaced file's backup '{BackupPath}': {exception.Message}");
+        }
       }
-      catch (IOException) when (!_overwrite && File.Exists(FinalPath))
-      {
-        throw new JsonRpcDispatchException(
-          "CIVIL3D.CONFLICT",
-          $"Output file already exists: {FinalPath}. Set overwrite=true to replace it explicitly.");
-      }
-      catch (Exception exception)
-      {
-        throw new JsonRpcDispatchException(
-          "CIVIL3D.FILE_IO_ERROR",
-          $"Could not move the finished output to '{FinalPath}' (is it open in another program?): {exception.Message}");
-      }
+
+      return result;
     }
 
     public void Dispose()
     {
-      try
+      if (_directoryLock == null)
       {
-        if (File.Exists(TempPath))
-        {
-          File.Delete(TempPath);
-        }
-      }
-      catch
-      {
-        // A leftover temp file has a hidden, collision-resistant name.
+        return;
       }
 
-      _directoryLock?.Dispose();
-      _directoryLock = null;
+      try
+      {
+        if (!_committed)
+        {
+          // Everything at the final name now was created during this write
+          // (it was absent when the write started), so it is removed; a link
+          // is removed itself, never its target.
+          var removed = TryRemoveEntry(FinalPath);
+          if (BackupPath != null)
+          {
+            if (removed)
+            {
+              TryRestoreBackup(FinalPath, BackupPath);
+            }
+            else
+            {
+              PluginLog.Warn("FileBoundary", $"The failed output at '{FinalPath}' could not be removed; the previous file was kept at '{BackupPath}'.");
+            }
+          }
+        }
+      }
+      finally
+      {
+        _directoryLock.Dispose();
+        _directoryLock = null;
+      }
+    }
+  }
+
+  /// <summary>The entry's own attributes (a link is not followed), or null when nothing is there.</summary>
+  private static FileAttributes? GetEntryAttributes(string path)
+  {
+    try
+    {
+      return File.GetAttributes(path);
+    }
+    catch (FileNotFoundException)
+    {
+      return null;
+    }
+    catch (DirectoryNotFoundException)
+    {
+      return null;
+    }
+    catch (Exception exception)
+    {
+      throw new JsonRpcDispatchException(
+        "CIVIL3D.FILE_IO_ERROR",
+        $"Unable to validate filesystem path '{path}': {exception.Message}");
+    }
+  }
+
+  /// <summary>Attributes and hard-link count of the entry itself (not a link's target), or null when absent.</summary>
+  private static (FileAttributes Attributes, uint Links)? InspectEntry(string path)
+  {
+    using var handle = CreateFileW(
+      path,
+      FileReadAttributes,
+      FileShare.ReadWrite | FileShare.Delete,
+      IntPtr.Zero,
+      FileMode.Open,
+      FileFlagBackupSemantics | FileFlagOpenReparsePoint,
+      IntPtr.Zero);
+    if (handle.IsInvalid)
+    {
+      var error = Marshal.GetLastWin32Error();
+      if (error is ErrorFileNotFound or ErrorPathNotFound)
+      {
+        return null;
+      }
+
+      throw new JsonRpcDispatchException(
+        "CIVIL3D.FILE_IO_ERROR",
+        $"Unable to inspect output file '{path}': {new Win32Exception(error).Message}");
+    }
+
+    if (!GetFileInformationByHandle(handle, out var information))
+    {
+      throw new JsonRpcDispatchException(
+        "CIVIL3D.FILE_IO_ERROR",
+        $"Unable to inspect output file '{path}': {new Win32Exception(Marshal.GetLastWin32Error()).Message}");
+    }
+
+    return ((FileAttributes)information.FileAttributes, information.NumberOfLinks);
+  }
+
+  /// <summary>Removes the entry at <paramref name="path"/> (a link itself, never its target). True when nothing is left.</summary>
+  private static bool TryRemoveEntry(string path)
+  {
+    try
+    {
+      var attributes = GetEntryAttributes(path);
+      if (attributes == null)
+      {
+        return true;
+      }
+
+      if ((attributes.Value & FileAttributes.Directory) != 0)
+      {
+        if ((attributes.Value & FileAttributes.ReparsePoint) == 0)
+        {
+          // A real directory was not created by a file writer; leave it.
+          return false;
+        }
+
+        // Non-recursive delete of a junction / directory link removes the link only.
+        Directory.Delete(path, recursive: false);
+      }
+      else
+      {
+        File.Delete(path);
+      }
+
+      return GetEntryAttributes(path) == null;
+    }
+    catch (Exception exception)
+    {
+      PluginLog.Warn("FileBoundary", $"Could not remove '{path}': {exception.Message}");
+      return false;
+    }
+  }
+
+  private static void TryRestoreBackup(string finalPath, string backupPath)
+  {
+    try
+    {
+      File.Move(backupPath, finalPath);
+    }
+    catch (Exception exception)
+    {
+      PluginLog.Warn("FileBoundary", $"Could not restore '{finalPath}' from its backup; the previous file was kept at '{backupPath}': {exception.Message}");
     }
   }
 
@@ -466,6 +690,25 @@ internal static class FileBoundary
     FileMode creationDisposition,
     uint flagsAndAttributes,
     IntPtr templateFile);
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct ByHandleFileInformation
+  {
+    public uint FileAttributes;
+    public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+    public uint VolumeSerialNumber;
+    public uint FileSizeHigh;
+    public uint FileSizeLow;
+    public uint NumberOfLinks;
+    public uint FileIndexHigh;
+    public uint FileIndexLow;
+  }
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool GetFileInformationByHandle(SafeFileHandle file, out ByHandleFileInformation fileInformation);
 
   [DllImport("kernel32.dll", SetLastError = true)]
   [return: MarshalAs(UnmanagedType.Bool)]

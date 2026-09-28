@@ -392,16 +392,19 @@ public static class PlotCommands
       var watch = Stopwatch.StartNew();
       var startedUtc = DateTime.UtcNow;
       OutputFile file;
-      // PUBLISH writes to a hidden, unpredictable name in the locked output
-      // directory (the DSD's DWF= target); the finished PDF is then renamed
-      // over the final name, and a failed publish never deletes an existing PDF.
-      using (var output = FileBoundary.BeginExternalWrite(outputPath, overwrite))
+      try
       {
-        try
-        {
-          FileBoundary.WriteAllTextAtomic(dsdPath, BuildDsd(sheets, currentPath, output.TempPath), new UTF8Encoding(false), true, ".dsd");
+        FileBoundary.WriteAllTextAtomic(dsdPath, BuildDsd(sheets, currentPath, outputPath), new UTF8Encoding(false), true, ".dsd");
 
-          using var sysvars = new SystemVariableScope();
+        // PUBLISH writes the final path (the DSD's DWF= target) itself, so
+        // "open in viewer when done" opens the real PDF. BeginExternalWrite
+        // locks the directory chain, refuses a link at the final name and
+        // moves an existing PDF (overwrite only) to a backup; Commit checks
+        // the result is a regular file before it is read, and a failed
+        // publish restores the previous PDF. See FileBoundary.BeginExternalWrite.
+        using var output = FileBoundary.BeginExternalWrite(outputPath, overwrite);
+        using (var sysvars = new SystemVariableScope())
+        {
           sysvars.Set("FILEDIA", 0);
           sysvars.Set("CMDECHO", 0);
           sysvars.Set("BACKGROUNDPLOT", 0);
@@ -411,17 +414,15 @@ public static class PlotCommands
           await CommandLineRunner.RunAsync(doc, "PUBLISH", "_.-PUBLISH", dsdPath);
           warnings.AddRange(sysvars.RestoreWarnings());
         }
-        finally
-        {
-          if (!keepDsd)
-          {
-            TryDelete(dsdPath);
-          }
-        }
 
-        file = VerifyOutput(output.TempPath, startedUtc);
-        output.Commit();
-        file = file with { Path = output.FinalPath };
+        file = output.Commit(path => VerifyOutput(path, startedUtc));
+      }
+      finally
+      {
+        if (!keepDsd)
+        {
+          TryDelete(dsdPath);
+        }
       }
       if (file.PageCount is int pages && pages != sheets.Count)
       {
@@ -634,14 +635,17 @@ public static class PlotCommands
 
   private static async Task<OutputFile> PlotOneAsync(Document doc, PlotJob job, bool overwrite)
   {
-    // The plotter writes to a hidden, unpredictable name in the locked output
-    // directory; the finished file is then renamed over the final name. This
-    // also means a failed plot never deletes an existing PDF.
-    using var output = FileBoundary.BeginExternalWrite(job.OutputPath!, overwrite);
-
     // Make the layout current first so the layout-name prompt default is the
     // target, then answer the verified chain.
     App.SetSystemVariable("CTAB", job.LayoutName);
+
+    // The plotter writes the final path itself, so the device's "open in
+    // viewer when done" option opens the real PDF. BeginExternalWrite locks
+    // the output directory chain, refuses a link at the final name and moves
+    // an existing PDF (overwrite only) to a backup; Commit checks the result
+    // is a regular file before it is read, and a failed plot restores the
+    // previous PDF. See FileBoundary.BeginExternalWrite.
+    using var output = FileBoundary.BeginExternalWrite(job.OutputPath!, overwrite);
     job.StartedUtc = DateTime.UtcNow;
 
     await CommandLineRunner.RunAsync(
@@ -664,13 +668,11 @@ public static class PlotCommands
       "_N",                         // Scale lineweights with plot scale?
       "_N",                         // Plot paper space first?
       "_N",                         // Hide paperspace objects?
-      output.TempPath,              // File name (PDF devices ask directly)
+      output.FinalPath,             // File name (PDF devices ask directly)
       "_N",                         // Save changes to page setup?
       "_Y");                        // Proceed with plot?
 
-    var file = VerifyOutput(output.TempPath, job.StartedUtc);
-    output.Commit();
-    return file with { Path = output.FinalPath };
+    return output.Commit(path => VerifyOutput(path, job.StartedUtc));
   }
 
   private static OutputFile VerifyOutput(string path, DateTime startedUtc)
