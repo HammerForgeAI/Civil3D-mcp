@@ -139,83 +139,155 @@ public static class ProfileEditCommands
 
   // ─── profileCheckKValues ──────────────────────────────────────────────────
 
+  /// <summary>The drawing's length unit from INSUNITS, else the Civil 3D drawing units; null when neither is known.</summary>
+  private static string? ResolveDrawingLengthUnit(Autodesk.Civil.ApplicationServices.CivilDocument civilDoc, Database database)
+  {
+    string? civilDrawingUnits = null;
+    string? imperialToMetric = null;
+    try
+    {
+      var unitZone = civilDoc.Settings.DrawingSettings.UnitZoneSettings;
+      civilDrawingUnits = unitZone.DrawingUnits.ToString();
+      imperialToMetric = unitZone.ImperialToMetricConversion.ToString();
+    }
+    catch (System.Exception)
+    {
+      // Fall back to INSUNITS alone.
+    }
+
+    return VerticalCurveMath.ResolveLengthUnit(database.Insunits.ToString(), civilDrawingUnits, imperialToMetric);
+  }
+
   public static Task<object?> CheckKValuesAsync(JsonObject? parameters)
   {
     var alignmentName = PluginRuntime.GetRequiredString(parameters, "alignmentName");
     var profileName = PluginRuntime.GetRequiredString(parameters, "profileName");
     var designSpeed = PluginRuntime.GetRequiredDouble(parameters, "designSpeed");
+    string? requestedSpeedUnits;
+    try
+    {
+      requestedSpeedUnits = VerticalCurveMath.NormalizeSpeedUnits(PluginRuntime.GetOptionalString(parameters, "speedUnits"));
+    }
+    catch (ArgumentException ex)
+    {
+      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", ex.Message);
+    }
 
     return CivilExecution.ReadAsync<object?>((doc, civilDoc, database, transaction) =>
     {
       var alignment = CivilObjectUtils.FindAlignmentByName(civilDoc, transaction, alignmentName);
       var profile = CivilObjectUtils.FindProfileByName(alignment, transaction, profileName, OpenMode.ForRead);
 
-      var entities = CivilObjectUtils.GetPropertyValue<object>(profile, "Entities");
-      if (entities == null)
+      var warnings = new List<string>();
+      var lengthUnit = ResolveDrawingLengthUnit(civilDoc, database);
+      var metersPerUnit = VerticalCurveMath.MetersPerUnit(lengthUnit);
+      var speedUnits = requestedSpeedUnits ?? VerticalCurveMath.DefaultSpeedUnitsForLengthUnit(lengthUnit);
+      var speedUnitsSource = requestedSpeedUnits != null ? "parameter" : "drawingUnits";
+      if (speedUnits == null)
       {
         throw new JsonRpcDispatchException(
-          "CIVIL3D.TRANSACTION_FAILED",
-          $"Profile '{profileName}' does not expose an Entities collection.");
+          "CIVIL3D.INVALID_INPUT",
+          $"The drawing's length unit ('{lengthUnit ?? "unknown"}') does not imply a speed unit; pass speedUnits \"mph\" or \"km/h\".");
       }
 
-      // AASHTO minimum K values table (metric km/h → K_sag, K_crest)
-      // Source: AASHTO Green Book 2011 Table 3-36 / 3-37
-      var kTable = BuildAashtoKTable();
-      var (kSagMin, kCrestMin) = LookupKValues(kTable, designSpeed);
+      if (metersPerUnit == null)
+      {
+        warnings.Add($"The drawing's length unit is unknown; curve lengths were taken to be in {(speedUnits == VerticalCurveMath.Mph ? "feet" : "meters")}.");
+      }
+
+      VerticalCurveMath.KLookup lookup;
+      try
+      {
+        lookup = VerticalCurveMath.LookupRow(speedUnits, designSpeed);
+      }
+      catch (ArgumentOutOfRangeException ex)
+      {
+        throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", ex.Message.Split(Environment.NewLine)[0]);
+      }
+
+      if (lookup.Note != null)
+      {
+        warnings.Add(lookup.Note);
+      }
 
       var results = new List<Dictionary<string, object?>>();
       var index = 0;
-      foreach (var entity in (System.Collections.IEnumerable)entities)
+      foreach (ProfileEntity entity in profile.Entities)
       {
-        var entityType = entity?.GetType().Name ?? string.Empty;
-        var isCurve = entityType.ToLowerInvariant().Contains("parabola")
-          || entityType.ToLowerInvariant().Contains("curve");
-        if (!isCurve)
+        var currentIndex = index++;
+        double gradeIn, gradeOut, pviStation;
+        string entityType;
+        switch (entity)
         {
-          index++;
-          continue;
+          case ProfileParabolaSymmetric symmetric:
+            (gradeIn, gradeOut, pviStation, entityType) = (symmetric.GradeIn, symmetric.GradeOut, symmetric.PVIStation, "symmetric_parabola");
+            break;
+          case ProfileParabolaAsymmetric asymmetric:
+            (gradeIn, gradeOut, pviStation, entityType) = (asymmetric.GradeIn, asymmetric.GradeOut, asymmetric.PVIStation, "asymmetric_parabola");
+            break;
+          case ProfileCircular circular:
+            (gradeIn, gradeOut, pviStation, entityType) = (circular.GradeIn, circular.GradeOut, circular.PVIStation, "circular_curve");
+            break;
+          default:
+            continue;
         }
 
-        var curveLength = CivilObjectUtils.GetPropertyValue<double?>(entity, "Length") ?? 0;
-        var gradeIn = CivilObjectUtils.GetPropertyValue<double?>(entity, "GradeIn")
-          ?? CivilObjectUtils.GetPropertyValue<double?>(entity, "StartGrade") ?? 0;
-        var gradeOut = CivilObjectUtils.GetPropertyValue<double?>(entity, "GradeOut")
-          ?? CivilObjectUtils.GetPropertyValue<double?>(entity, "EndGrade") ?? 0;
-        var algebraicDiff = Math.Abs(gradeOut - gradeIn);
-        var kValue = algebraicDiff > 1e-10 ? curveLength / algebraicDiff : double.PositiveInfinity;
-
-        var isSag = gradeOut > gradeIn;
-        var requiredK = isSag ? kSagMin : kCrestMin;
-        var passes = kValue >= requiredK || double.IsPositiveInfinity(kValue);
+        var curveLength = entity.Length;
+        var tableLength = VerticalCurveMath.LengthToTableUnits(curveLength, metersPerUnit, speedUnits);
+        var aPercent = VerticalCurveMath.GradeDifferencePercent(gradeIn, gradeOut);
+        var kValue = VerticalCurveMath.ComputeK(tableLength, gradeIn, gradeOut);
+        var isSag = VerticalCurveMath.IsSag(gradeIn, gradeOut);
+        var requiredK = isSag ? lookup.Row.KSag : lookup.Row.KCrest;
+        var passes = kValue == null || kValue.Value >= requiredK;
 
         results.Add(new Dictionary<string, object?>
         {
-          ["entityIndex"] = index,
+          ["entityIndex"] = currentIndex,
+          ["entityType"] = entityType,
           ["curveType"] = isSag ? "sag" : "crest",
+          ["startStation"] = entity.StartStation,
+          ["endStation"] = entity.EndStation,
+          ["pviStation"] = pviStation,
           ["curveLength"] = curveLength,
           ["gradeIn"] = gradeIn,
           ["gradeOut"] = gradeOut,
-          ["algebraicDifference"] = algebraicDiff,
-          ["kValue"] = double.IsPositiveInfinity(kValue) ? null : (object?)kValue,
+          ["gradeInPercent"] = gradeIn * 100.0,
+          ["gradeOutPercent"] = gradeOut * 100.0,
+          ["algebraicDifferencePercent"] = aPercent,
+          ["kValue"] = kValue,
           ["requiredK"] = requiredK,
           ["passes"] = passes,
         });
-        index++;
       }
 
-      var allPass = results.All(r => (bool)(r["passes"] ?? false));
+      var failing = results.Count(r => !(bool)(r["passes"] ?? false));
+      var allPass = failing == 0;
       return new Dictionary<string, object?>
       {
         ["alignmentName"] = alignment.Name,
         ["profileName"] = profile.Name,
         ["designSpeed"] = designSpeed,
-        ["kSagMinimum"] = kSagMin,
-        ["kCrestMinimum"] = kCrestMin,
+        ["speedUnits"] = speedUnits,
+        ["speedUnitsSource"] = speedUnitsSource,
+        ["drawingLengthUnit"] = lengthUnit,
+        ["kUnits"] = lookup.KUnits,
+        ["gradeUnits"] = "gradeIn/gradeOut are decimal ratios; *Percent fields and A are percent; K = L / A",
+        ["tableRow"] = new Dictionary<string, object?>
+        {
+          ["designSpeed"] = lookup.Row.Speed,
+          ["kCrest"] = lookup.Row.KCrest,
+          ["kSag"] = lookup.Row.KSag,
+          ["exactMatch"] = lookup.ExactMatch,
+          ["source"] = "AASHTO Green Book stopping sight distance design K (crest Table 3-34, sag Table 3-36)",
+        },
+        ["kSagMinimum"] = lookup.Row.KSag,
+        ["kCrestMinimum"] = lookup.Row.KCrest,
         ["curves"] = results,
         ["allPass"] = allPass,
+        ["warnings"] = warnings,
         ["summary"] = allPass
-          ? $"All {results.Count} vertical curve(s) meet minimum K values for {designSpeed} design speed."
-          : $"{results.Count(r => !(bool)(r["passes"] ?? false))} of {results.Count} curve(s) fail minimum K value requirements.",
+          ? $"All {results.Count} vertical curve(s) meet the minimum K for {designSpeed} {speedUnits} (table row {lookup.Row.Speed} {speedUnits}: crest {lookup.Row.KCrest}, sag {lookup.Row.KSag} {lookup.KUnits})."
+          : $"{failing} of {results.Count} vertical curve(s) are below the minimum K for {designSpeed} {speedUnits} (table row {lookup.Row.Speed} {speedUnits}: crest {lookup.Row.KCrest}, sag {lookup.Row.KSag} {lookup.KUnits}).",
       };
     });
   }
@@ -397,56 +469,5 @@ public static class ProfileEditCommands
     }
 
     return closest;
-  }
-
-  /// <summary>
-  /// AASHTO minimum K values (metric, km/h).
-  /// Returns (K_sag_min, K_crest_min).
-  /// Source: AASHTO A Policy on Geometric Design of Highways and Streets, 2011.
-  /// </summary>
-  private static List<(double speed, double kSag, double kCrest)> BuildAashtoKTable() =>
-  [
-    (30, 3, 1),
-    (40, 7, 2),
-    (50, 9, 4),
-    (60, 11, 6),
-    (70, 14, 10),
-    (80, 19, 17),
-    (90, 24, 29),
-    (100, 30, 44),
-    (110, 37, 60),
-    (120, 46, 84),
-    (130, 57, 114),
-  ];
-
-  private static (double kSag, double kCrest) LookupKValues(
-    List<(double speed, double kSag, double kCrest)> table,
-    double designSpeed)
-  {
-    // Find exact match first
-    var exact = table.FirstOrDefault(t => Math.Abs(t.speed - designSpeed) < 0.5);
-    if (exact != default)
-    {
-      return (exact.kSag, exact.kCrest);
-    }
-
-    // Interpolate between nearest values
-    var lower = table.LastOrDefault(t => t.speed <= designSpeed);
-    var upper = table.FirstOrDefault(t => t.speed > designSpeed);
-
-    if (lower == default)
-    {
-      return (table[0].kSag, table[0].kCrest);
-    }
-
-    if (upper == default)
-    {
-      return (table[^1].kSag, table[^1].kCrest);
-    }
-
-    var ratio = (designSpeed - lower.speed) / (upper.speed - lower.speed);
-    return (
-      lower.kSag + ratio * (upper.kSag - lower.kSag),
-      lower.kCrest + ratio * (upper.kCrest - lower.kCrest));
   }
 }

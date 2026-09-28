@@ -284,24 +284,17 @@ public static class ProfileCommands
     return "layout";
   }
 
+  // Match the ProfileEntityType enum names exactly: a substring test for
+  // "asymmetric" also matches "parabolasymmetric" (ParabolaSymmetric), which
+  // reported every symmetric curve as asymmetric_parabola.
   private static string MapProfileEntityType(string value)
   {
-    var text = value.ToLowerInvariant();
-    if (text.Contains("asymmetric"))
+    return value switch
     {
-      return "asymmetric_parabola";
-    }
-
-    if (text.Contains("parabola"))
-    {
-      return "parabola";
-    }
-
-    if (text.Contains("curve"))
-    {
-      return "circular_curve";
-    }
-
-    return "tangent";
+      "ParabolaSymmetric" => "symmetric_parabola",
+      "ParabolaAsymmetric" => "asymmetric_parabola",
+      "Circular" => "circular_curve",
+      _ => "tangent",
+    };
   }
 }
