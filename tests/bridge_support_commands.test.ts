@@ -254,7 +254,10 @@ describe("bridge-support commands", () => {
     it("never looks up the coordinate-system library for the bare code, and tolerates a failed lookup", () => {
       const source = pluginSource("DrawingCommands.cs");
       const codeStart = source.indexOf("private static string? ReadCoordinateSystemCode");
-      const codeBody = source.slice(codeStart, source.indexOf("private static (string? code", codeStart));
+      expect(codeStart).toBeGreaterThan(0);
+      const codeEnd = source.indexOf("private static (string? code", codeStart);
+      expect(codeEnd).toBeGreaterThan(codeStart);
+      const codeBody = source.slice(codeStart, codeEnd);
       expect(codeBody).not.toContain("GetCoordinateSystemByCode");
       const fieldsStart = source.indexOf("private static (string? code, string? zone");
       const fieldsBody = source.slice(fieldsStart);
