@@ -228,53 +228,102 @@ public static class ProfileEditCommands
     var profileViewName = PluginRuntime.GetRequiredString(parameters, "profileViewName");
     var insertX = PluginRuntime.GetRequiredDouble(parameters, "insertX");
     var insertY = PluginRuntime.GetRequiredDouble(parameters, "insertY");
+    var requestedStyle = PluginRuntime.GetOptionalString(parameters, "style");
+    var requestedBandSet = PluginRuntime.GetOptionalString(parameters, "bandSet");
+    var requestedLayer = PluginRuntime.GetOptionalString(parameters, "layer");
 
     return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
     {
       var alignment = CivilObjectUtils.FindAlignmentByName(civilDoc, transaction, alignmentName);
       var insertionPoint = new Point3d(insertX, insertY, 0);
 
-      var blockTable = CivilObjectUtils.GetRequiredObject<BlockTable>(
-        transaction, database.BlockTableId, OpenMode.ForRead);
-      var modelSpace = CivilObjectUtils.GetRequiredObject<BlockTableRecord>(
-        transaction, blockTable[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+      // Resolve the layer first so an invalid name fails before anything is created.
+      var layerId = string.IsNullOrWhiteSpace(requestedLayer)
+        ? ObjectId.Null
+        : LookupUtils.GetLayerId(database, transaction, requestedLayer);
 
-      var styleId = LookupUtils.GetProfileViewStyleId(
-        civilDoc, transaction, PluginRuntime.GetOptionalString(parameters, "style"));
-      var bandSetId = LookupUtils.GetProfileViewBandSetId(
-        civilDoc, transaction, PluginRuntime.GetOptionalString(parameters, "bandSet"));
+      // Both lookups fall back to the drawing's first style / band set when no
+      // name (or an unknown one) is given, so Create never gets a Null id
+      // unless the drawing has no profile view styles or band sets at all.
+      var styleId = LookupUtils.GetProfileViewStyleId(civilDoc, transaction, requestedStyle);
+      var bandSetId = LookupUtils.GetProfileViewBandSetId(civilDoc, transaction, requestedBandSet, fallbackToFirst: true);
+      var styleName = NameOf(transaction, styleId);
+      var bandSetName = NameOf(transaction, bandSetId);
 
-      // ProfileView.Create(profileViewName, alignmentId, styleId, insertionPoint)
-      // or ProfileView.Create(profileViewName, alignmentId, insertionPoint, styleId, bandSetId)
-      var profileViewType = typeof(ProfileView);
-      var pvId = (ObjectId?)(
-        CivilObjectUtils.InvokeStaticMethod(profileViewType, "Create",
-          profileViewName, alignment.ObjectId, insertionPoint, styleId, bandSetId)
-        ?? CivilObjectUtils.InvokeStaticMethod(profileViewType, "Create",
-          profileViewName, alignment.ObjectId, styleId, insertionPoint)
-        ?? CivilObjectUtils.InvokeStaticMethod(profileViewType, "Create",
-          profileViewName, alignment.ObjectId, insertionPoint));
-
-      if (pvId == null || pvId.Value.IsNull)
+      var warnings = new List<string>();
+      if (!string.IsNullOrWhiteSpace(requestedStyle) && !string.Equals(styleName, requestedStyle, StringComparison.OrdinalIgnoreCase))
       {
-        throw new JsonRpcDispatchException(
-          "CIVIL3D.TRANSACTION_FAILED",
-          "ProfileView.Create returned null — this Civil 3D version may require a different API signature.");
+        warnings.Add($"Profile view style '{requestedStyle}' was not found; used '{styleName ?? "(none)"}'.");
       }
 
-      var profileView = CivilObjectUtils.GetRequiredObject<ProfileView>(
-        transaction, pvId.Value, OpenMode.ForRead);
+      if (!string.IsNullOrWhiteSpace(requestedBandSet) && !string.Equals(bandSetName, requestedBandSet, StringComparison.OrdinalIgnoreCase))
+      {
+        warnings.Add($"Profile view band set '{requestedBandSet}' was not found; used '{bandSetName ?? "(none)"}'.");
+      }
+
+      ObjectId pvId;
+      if (!styleId.IsNull && !bandSetId.IsNull)
+      {
+        // Civil 3D 2027 (verified from AeccDbMgd metadata):
+        // static ObjectId Create(ObjectId alignmentId, Point3d insertPosition,
+        //   string profileViewName, ObjectId profileViewBandSetId, ObjectId profileViewStyleId)
+        pvId = ProfileView.Create(alignment.ObjectId, insertionPoint, profileViewName, bandSetId, styleId);
+      }
+      else
+      {
+        // No style or band set in the drawing: let Civil 3D use its defaults, then name it.
+        pvId = ProfileView.Create(alignment.ObjectId, insertionPoint);
+        warnings.Add("The drawing has no profile view style or band set; Civil 3D defaults were used.");
+      }
+
+      if (pvId.IsNull)
+      {
+        throw new JsonRpcDispatchException("CIVIL3D.TRANSACTION_FAILED", "ProfileView.Create did not return a profile view.");
+      }
+
+      var profileView = CivilObjectUtils.GetRequiredObject<ProfileView>(transaction, pvId, OpenMode.ForWrite);
+      if (!string.Equals(profileView.Name, profileViewName, StringComparison.Ordinal))
+      {
+        try
+        {
+          profileView.Name = profileViewName;
+        }
+        catch (System.Exception ex)
+        {
+          warnings.Add($"Civil 3D named the profile view '{profileView.Name}' and it could not be renamed to '{profileViewName}': {ex.Message}");
+        }
+      }
+
+      if (!layerId.IsNull)
+      {
+        profileView.LayerId = layerId;
+      }
 
       return new Dictionary<string, object?>
       {
         ["profileViewName"] = profileView.Name,
+        ["name"] = profileView.Name,
         ["handle"] = CivilObjectUtils.GetHandle(profileView),
         ["alignmentName"] = alignment.Name,
+        ["layer"] = profileView.Layer,
+        ["style"] = NameOf(transaction, profileView.StyleId) ?? styleName,
+        ["bandSet"] = bandSetName,
         ["insertX"] = insertX,
         ["insertY"] = insertY,
+        ["warnings"] = warnings,
         ["success"] = true,
       };
     });
+  }
+
+  private static string? NameOf(Transaction transaction, ObjectId objectId)
+  {
+    if (objectId.IsNull)
+    {
+      return null;
+    }
+
+    return CivilObjectUtils.GetName(transaction.GetObject(objectId, OpenMode.ForRead));
   }
 
   // ─── profileViewBandSet ───────────────────────────────────────────────────

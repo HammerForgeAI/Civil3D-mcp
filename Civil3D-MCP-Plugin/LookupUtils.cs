@@ -101,26 +101,31 @@ public static class LookupUtils
     return GetStyleId(civilDoc.Styles.LabelSetStyles.ProfileLabelSetStyles, transaction, styleName);
   }
 
+  /// <summary>
+  /// The named profile view style; with no name (or an unknown one) the
+  /// drawing's first profile view style; ObjectId.Null only when the drawing
+  /// has none.
+  /// </summary>
   public static ObjectId GetProfileViewStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
-    var styles = CivilObjectUtils.GetPropertyValue<object>(civilDoc.Styles, "ProfileViewStyles");
-    return styles != null
-      ? GetStyleId(styles, transaction, styleName)
-      : ObjectId.Null;
+    return GetStyleId(civilDoc.Styles.ProfileViewStyles, transaction, styleName);
   }
 
-  public static ObjectId GetProfileViewBandSetId(CivilDocument civilDoc, Transaction transaction, string? bandSetName)
+  /// <summary>
+  /// The named profile view band set. Band sets live on StylesRoot, not on
+  /// LabelSetStylesRoot (the old reflective lookup there always returned
+  /// Null). With no name this returns ObjectId.Null unless
+  /// <paramref name="fallbackToFirst"/> is set; an unknown name falls back to
+  /// the first band set, like the other style lookups.
+  /// </summary>
+  public static ObjectId GetProfileViewBandSetId(CivilDocument civilDoc, Transaction transaction, string? bandSetName, bool fallbackToFirst = false)
   {
-    if (string.IsNullOrWhiteSpace(bandSetName))
+    if (string.IsNullOrWhiteSpace(bandSetName) && !fallbackToFirst)
     {
       return ObjectId.Null;
     }
 
-    var labelSetStyles = civilDoc.Styles.LabelSetStyles;
-    var bandSetStyles = CivilObjectUtils.GetPropertyValue<object>(labelSetStyles, "ProfileViewBandSetStyles");
-    return bandSetStyles != null
-      ? GetStyleId(bandSetStyles, transaction, bandSetName)
-      : ObjectId.Null;
+    return GetStyleId(civilDoc.Styles.ProfileViewBandSetStyles, transaction, bandSetName);
   }
 
   public static ObjectId GetParcelStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
