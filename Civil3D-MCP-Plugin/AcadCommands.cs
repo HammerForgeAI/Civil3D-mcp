@@ -1006,8 +1006,39 @@ public static class AcadCommands
             ["layer"] = mLeader.Layer,
           };
 
+        case Dimension dim:
+          // Fixes a dimension whose text drifted from AutoCAD's own DIMFIT auto-placement (short
+          // dimensions at a large annotation scale can eject text several feet away — see the
+          // hasExplicitDimLine fix in DimensionViewportCommands.CreateAlignedDimensionAsync for new
+          // dimensions; this is the same fix applied to one already in the drawing).
+          if (newX is double dimx && newY is double dimy)
+          {
+            dim.TextPosition = new Point3d(dimx, dimy, newZ ?? dim.TextPosition.Z);
+            dim.UsingDefaultTextPosition = false;
+          }
+          else if (newX != null || newY != null)
+          {
+            throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "Moving a dimension's text requires both 'x' and 'y'.");
+          }
+
+          if (newText != null)
+          {
+            dim.DimensionText = newText;
+          }
+
+          return new Dictionary<string, object?>
+          {
+            ["handle"] = handleValue,
+            ["entityType"] = entity.GetType().Name,
+            ["text"] = dim.DimensionText,
+            ["x"] = dim.TextPosition.X,
+            ["y"] = dim.TextPosition.Y,
+            ["z"] = dim.TextPosition.Z,
+            ["layer"] = dim.Layer,
+          };
+
         default:
-          throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"Entity type '{entity.GetType().Name}' does not support text updates. Supported types: DBText, MText, MLeader.");
+          throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"Entity type '{entity.GetType().Name}' does not support text updates. Supported types: DBText, MText, MLeader, Dimension.");
       }
     });
   }

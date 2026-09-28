@@ -93,6 +93,12 @@ public static class DimensionViewportCommands
     }
 
     var dimLinePoint = ComputeDimLinePoint(p1, p2, dimLineX, dimLineY, offset);
+    // A caller that names an explicit dimLineX/dimLineY (rather than just an offset) wants the text
+    // fixed there. RecomputeDimensionBlock(true) below always re-runs AutoCAD's own DIMFIT placement,
+    // which for a short dimension (e.g. a 5 ft easement callout at 1:20) can eject the text several
+    // feet away from the line whenever it doesn't fit between the extension lines. Recompute(false)
+    // keeps the point we set instead. Bug found 2026-09-28 (VILLA ONE FASE 1 easement dims 12235/12248).
+    var hasExplicitDimLine = dimLineX.HasValue && dimLineY.HasValue;
 
     return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
     {
@@ -106,6 +112,12 @@ public static class DimensionViewportCommands
       dimension.DimLinePoint = dimLinePoint;
       dimension.DimensionStyle = dimStyleId;
       dimension.DimensionText = textOverride ?? string.Empty;
+      if (hasExplicitDimLine)
+      {
+        dimension.TextPosition = dimLinePoint;
+        dimension.UsingDefaultTextPosition = false;
+      }
+
       if (!string.IsNullOrWhiteSpace(layerName))
       {
         dimension.LayerId = LookupUtils.GetLayerId(database, transaction, layerName);
@@ -115,7 +127,11 @@ public static class DimensionViewportCommands
       transaction.AddNewlyCreatedDBObject(dimension, true);
       ApplyStyleAnnotative(database, transaction, dimension);
       ApplyDimOverrides(dimension, parameters);
-      dimension.RecomputeDimensionBlock(true);
+      dimension.RecomputeDimensionBlock(!hasExplicitDimLine);
+      if (hasExplicitDimLine)
+      {
+        dimension.TextPosition = dimLinePoint;
+      }
 
       var created = CivilObjectUtils.GetRequiredObject<Dimension>(transaction, dimensionId, OpenMode.ForRead);
       var entry = BuildDimensionEntry(created, targetLayoutName, space == "model");
