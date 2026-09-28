@@ -25,13 +25,110 @@ import { GENERATED_TOOL_CATALOG_ENTRIES, findManifestAction } from "../src/tools
 const pluginSource = (fileName: string) =>
   readFileSync(new URL(`../Civil3D-MCP-Plugin/${fileName}`, import.meta.url), "utf8");
 
-// C# source with comments and string literals removed, so guards match code
-// only (the file documents why it avoids PlotEngine in comments).
-const pluginCode = (fileName: string) =>
-  pluginSource(fileName)
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/.*$/gm, "")
-    .replace(/@?\$?"(?:[^"\\\r\n]|\\.)*"/g, '""');
+// C# source with comments and string/char literals removed, so guards match
+// code only (the file documents why it avoids PlotEngine in comments). A small
+// lexer rather than regexes: it handles verbatim ("" escapes, newlines), raw
+// and interpolated strings (hole expressions are kept as code), char literals
+// such as '"', and comment markers inside strings.
+function stripCSharpCommentsAndStrings(source: string): string {
+  let i = 0;
+  const lexCode = (untilCloseBrace: boolean): string => {
+    let out = "";
+    let depth = 0;
+    while (i < source.length) {
+      const c = source[i];
+      const next = source[i + 1];
+      if (c === "/" && next === "/") {
+        while (i < source.length && source[i] !== "\n") i++;
+        out += " ";
+      } else if (c === "/" && next === "*") {
+        const end = source.indexOf("*/", i + 2);
+        i = end < 0 ? source.length : end + 2;
+        out += " ";
+      } else if (c === "'") {
+        i++;
+        while (i < source.length && source[i] !== "'") i += source[i] === "\\" ? 2 : 1;
+        i++;
+        out += "''";
+      } else if (c === '"' || ((c === "@" || c === "$") && /^[@$]{0,2}"/.test(source.slice(i, i + 3)))) {
+        out += '""' + lexString();
+      } else if (untilCloseBrace && c === "{") {
+        depth++;
+        out += c;
+        i++;
+      } else if (untilCloseBrace && c === "}") {
+        if (depth === 0) return out;
+        depth--;
+        out += c;
+        i++;
+      } else {
+        out += c;
+        i++;
+      }
+    }
+    return out;
+  };
+  // Skips a string literal and returns the code of its interpolation holes.
+  const lexString = (): string => {
+    let holes = "";
+    let verbatim = false;
+    let interpolated = 0;
+    while (source[i] === "@" || source[i] === "$") {
+      if (source[i] === "@") verbatim = true;
+      else interpolated++;
+      i++;
+    }
+    let quotes = 0;
+    while (source[i + quotes] === '"') quotes++;
+    if (quotes >= 3) {
+      // Raw string literal: ends at the same run of quotes.
+      i += quotes;
+      const fence = '"'.repeat(quotes);
+      while (i < source.length && !source.startsWith(fence, i)) {
+        if (interpolated > 0 && source.startsWith("{".repeat(interpolated), i)) {
+          i += interpolated;
+          holes += " " + lexCode(true);
+          i++;
+        } else {
+          i++;
+        }
+      }
+      i += quotes;
+      return holes;
+    }
+    i++;
+    while (i < source.length) {
+      const c = source[i];
+      if (c === '"') {
+        if (verbatim && source[i + 1] === '"') {
+          i += 2;
+          continue;
+        }
+        i++;
+        return holes;
+      }
+      if (!verbatim && c === "\\") {
+        i += 2;
+      } else if (interpolated > 0 && c === "{") {
+        if (source[i + 1] === "{") {
+          i += 2;
+        } else {
+          i++;
+          holes += " " + lexCode(true);
+          i++;
+        }
+      } else if (!verbatim && c === "\n") {
+        return holes;
+      } else {
+        i++;
+      }
+    }
+    return holes;
+  };
+  return lexCode(false);
+}
+
+const pluginCode = (fileName: string) => stripCSharpCommentsAndStrings(pluginSource(fileName));
 
 function approvalTargetFor(action: string) {
   const match = findManifestAction("civil3d_plot", action);
@@ -258,6 +355,22 @@ describe("civil3d_plot routing", () => {
 });
 
 describe("civil3d_plot native implementation guards", () => {
+  it("strips C# comments and every string form before the code guards run", () => {
+    const sample = [
+      'var a = $"{prefix ?? name + "-"}{Sanitize(x)}" + ".pdf"; // PlotEngine',
+      'var b = @"C:\\PlotEngine\\""quoted"" ' + "\n" + 'PlotFactory";',
+      "var c = '\"'; var d = PlotSettingsValidator.Current; /* PreviewEngine */",
+      'var e = $@"{Path.Combine(dir, "PlotEngine")}"; var f = "\\"PlotEngine\\"";',
+      'var g = """' + "\n" + 'BackgroundPlotEngine "quoted"' + "\n" + '""";',
+    ].join("\n");
+    const code = stripCSharpCommentsAndStrings(sample);
+    expect(code).not.toMatch(/PlotEngine|PlotFactory|PreviewEngine|quoted/);
+    expect(code).toContain("Sanitize(x)");
+    expect(code).toContain("Path.Combine(dir, \"\")");
+    expect(code).toContain("PlotSettingsValidator.Current");
+    expect(code).toContain("var g = \"\";");
+  });
+
   it("drives -PLOT/-PUBLISH in the foreground instead of the crash-prone PlotEngine", () => {
     const source = pluginSource("PlotCommands.cs");
     expect(source).toContain('"_.-PLOT"');
@@ -280,14 +393,24 @@ describe("civil3d_plot native implementation guards", () => {
     expect(source).toContain("FileBoundary.BeginExternalWrite(outputPath, overwrite)");
     // The plotter gets the final name, so "open in viewer when done" opens the
     // real PDF instead of a temp name that was renamed away.
-    expect(source).toContain("output.FinalPath,             // File name");
-    expect(source).toContain("BuildDsd(sheets, currentPath, outputPath)");
+    expect(source).toMatch(/output\.FinalPath,\s*\/\/ File name/);
+    expect(source).toContain("BuildDsd(sheets, currentPath, output.FinalPath)");
     expect(source).not.toContain("TempPath");
-    expect(source).toContain("output.Commit(path => VerifyOutput(path, job.StartedUtc))");
-    expect(source).toContain("output.Commit(path => VerifyOutput(path, startedUtc))");
-    // The DSD naming the final PDF is written before the output is staged.
-    const publish = source.slice(source.indexOf("BuildDsd(sheets, currentPath, outputPath)"));
-    expect(publish.indexOf("BeginExternalWrite(outputPath, overwrite)")).toBeGreaterThan(-1);
+    // The content check reads the handle Commit checked, never the path again.
+    expect(source).toContain("output.Commit((path, stream) => VerifyOutput(path, stream, job.StartedUtc))");
+    expect(source).toContain("output.Commit((path, stream) => VerifyOutput(path, stream, startedUtc))");
+    const verify = pluginCode("PlotCommands.cs").slice(pluginCode("PlotCommands.cs").indexOf("OutputFile VerifyOutput("));
+    expect(verify.slice(0, verify.indexOf("private static string BuildDsd"))).not.toMatch(/\b(?:FileInfo|File\.ReadAll\w*|File\.Open\w*)\(/);
+    // The publish DSD is written under the external-write lock, then re-checked
+    // and held open right before -PUBLISH reads it.
+    const publish = source.slice(source.indexOf("FileBoundary.BeginExternalWrite(outputPath, overwrite)"));
+    const dsdWrite = publish.indexOf("FileBoundary.WriteAllTextAtomic(dsdPath, dsd, encoding, true, \".dsd\")");
+    const dsdHold = publish.indexOf("FileBoundary.HoldVerifiedFile(dsdPath, dsd, encoding)");
+    expect(dsdWrite).toBeGreaterThan(-1);
+    expect(dsdHold).toBeGreaterThan(dsdWrite);
+    expect(publish.indexOf('CommandLineRunner.RunAsync(doc, "PUBLISH"')).toBeGreaterThan(dsdHold);
+    expect(source.indexOf("FileBoundary.WriteAllTextAtomic(dsdPath")).toBeGreaterThan(source.indexOf("FileBoundary.BeginExternalWrite(outputPath, overwrite)"));
+    expect(boundary).toMatch(/GenericRead \| FileReadAttributes,\s*FileShare\.Read,/);
     expect(boundary).toContain("FileFlagBackupSemantics | FileFlagOpenReparsePoint");
     expect(boundary).toContain("links != 1");
     expect(boundary).not.toContain("mcp-tmp");
@@ -296,10 +419,18 @@ describe("civil3d_plot native implementation guards", () => {
   it("refuses to feed a new command into a prompt an earlier request left open", () => {
     const runner = pluginSource("CommandLineRunner.cs");
     const run = runner.slice(runner.indexOf("internal static async Task RunAsync"));
-    const staleCheck = run.indexOf("FindActiveCommand(DrivenCommandsSnapshot())");
+    const staleCheck = run.indexOf("FindActiveCommand(PendingCommandsFor(doc))");
+    const command = run.indexOf("await doc.Editor.CommandAsync(tokens)");
     expect(staleCheck).toBeGreaterThan(-1);
-    expect(staleCheck).toBeLessThan(run.indexOf("await doc.Editor.CommandAsync(tokens)"));
-    expect(run.indexOf("FindActiveCommand([commandName])")).toBeGreaterThan(run.indexOf("await doc.Editor.CommandAsync(tokens)"));
+    expect(staleCheck).toBeLessThan(command);
+    expect(run.indexOf("FindActiveCommand([commandName])")).toBeGreaterThan(command);
+    // Only unfinished invocations are remembered: a command that completed is
+    // forgotten at once, so a PLOT/PUBLISH/XREF the user starts later is not
+    // cancelled as a stale request, and pending entries are per document.
+    expect(runner).not.toContain("HashSet<string> DrivenCommands");
+    expect(runner).toContain("List<(Document Doc, string Command)> PendingInvocations");
+    expect(run.indexOf("PendingInvocations.Remove(invocation)")).toBeGreaterThan(command);
+    expect(runner).toContain("ReferenceEquals(entry.Doc, doc)");
   });
 
   it("skips or rejects never-initialized layouts before publishing", () => {

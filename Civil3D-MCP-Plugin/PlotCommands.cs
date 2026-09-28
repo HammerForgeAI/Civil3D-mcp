@@ -394,8 +394,6 @@ public static class PlotCommands
       OutputFile file;
       try
       {
-        FileBoundary.WriteAllTextAtomic(dsdPath, BuildDsd(sheets, currentPath, outputPath), new UTF8Encoding(false), true, ".dsd");
-
         // PUBLISH writes the final path (the DSD's DWF= target) itself, so
         // "open in viewer when done" opens the real PDF. BeginExternalWrite
         // locks the directory chain, refuses a link at the final name and
@@ -403,6 +401,16 @@ public static class PlotCommands
         // the result is a regular file before it is read, and a failed
         // publish restores the previous PDF. See FileBoundary.BeginExternalWrite.
         using var output = FileBoundary.BeginExternalWrite(outputPath, overwrite);
+
+        // The DSD sits beside the PDF, so it is written under the same lock.
+        // Its DWF= line decides where -PUBLISH writes, so right before the
+        // command it is re-read from a handle that does not follow links and
+        // must still be exactly what was written (DWF= is the final path);
+        // that handle stays open, denying writes, deletes and renames, until
+        // -PUBLISH has read it.
+        var encoding = new UTF8Encoding(false);
+        var dsd = BuildDsd(sheets, currentPath, output.FinalPath);
+        FileBoundary.WriteAllTextAtomic(dsdPath, dsd, encoding, true, ".dsd");
         using (var sysvars = new SystemVariableScope())
         {
           sysvars.Set("FILEDIA", 0);
@@ -411,11 +419,14 @@ public static class PlotCommands
           sysvars.Set("PUBLISHCOLLATE", 1);
 
           cancellationToken.ThrowIfCancellationRequested();
-          await CommandLineRunner.RunAsync(doc, "PUBLISH", "_.-PUBLISH", dsdPath);
+          using (FileBoundary.HoldVerifiedFile(dsdPath, dsd, encoding))
+          {
+            await CommandLineRunner.RunAsync(doc, "PUBLISH", "_.-PUBLISH", dsdPath);
+          }
           warnings.AddRange(sysvars.RestoreWarnings());
         }
 
-        file = output.Commit(path => VerifyOutput(path, startedUtc));
+        file = output.Commit((path, stream) => VerifyOutput(path, stream, startedUtc));
       }
       finally
       {
@@ -672,38 +683,43 @@ public static class PlotCommands
       "_N",                         // Save changes to page setup?
       "_Y");                        // Proceed with plot?
 
-    return output.Commit(path => VerifyOutput(path, job.StartedUtc));
+    return output.Commit((path, stream) => VerifyOutput(path, stream, job.StartedUtc));
   }
 
-  private static OutputFile VerifyOutput(string path, DateTime startedUtc)
+  // Reads the output only through the stream Commit opened on the checked
+  // handle; the path is used for messages and the result only.
+  private static OutputFile VerifyOutput(string path, FileStream? stream, DateTime startedUtc)
   {
-    var info = new FileInfo(path);
-    if (!info.Exists)
+    if (stream == null)
     {
       throw new JsonRpcDispatchException("CIVIL3D.API_ERROR", $"The plot command finished but no PDF was written to '{path}'.");
     }
-    info.Refresh();
+    var lastWriteUtc = File.GetLastWriteTimeUtc(stream.SafeFileHandle);
     // Allow for coarse filesystem timestamps.
-    if (info.LastWriteTimeUtc < startedUtc.AddSeconds(-2))
+    if (lastWriteUtc < startedUtc.AddSeconds(-2))
     {
       throw new JsonRpcDispatchException("CIVIL3D.API_ERROR", $"'{path}' exists but was not written by this plot run.");
     }
-    if (info.Length == 0)
+    var length = stream.Length;
+    if (length == 0)
     {
       throw new JsonRpcDispatchException("CIVIL3D.API_ERROR", $"'{path}' was written but is empty.");
     }
 
-    return new OutputFile(info.FullName, info.Length, CountPdfPages(info), info.LastWriteTimeUtc);
+    return new OutputFile(path, length, CountPdfPages(stream), lastWriteUtc);
   }
 
   // Heuristic: counts uncompressed /Type /Page objects. Returns null when the
   // file is too large to scan or uses compressed object streams (count 0).
-  private static int? CountPdfPages(FileInfo info)
+  private static int? CountPdfPages(FileStream stream)
   {
     try
     {
-      if (info.Length > PageCountReadLimitBytes) return null;
-      var text = Encoding.Latin1.GetString(File.ReadAllBytes(info.FullName));
+      if (stream.Length > PageCountReadLimitBytes) return null;
+      var bytes = new byte[stream.Length];
+      stream.Position = 0;
+      stream.ReadExactly(bytes);
+      var text = Encoding.Latin1.GetString(bytes);
       var count = PdfPageObject.Matches(text).Count;
       return count > 0 ? count : null;
     }

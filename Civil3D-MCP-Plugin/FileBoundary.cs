@@ -19,6 +19,8 @@ internal static class FileBoundary
   private const uint FileFlagOpenReparsePoint = 0x00200000;
   private const int FileAttributeTagInfoClass = 9;
   private const uint FileReadAttributes = 0x0080;
+  private const uint GenericRead = 0x80000000;
+  private const int ErrorSharingViolation = 32;
   private const int ErrorFileNotFound = 2;
   private const int ErrorPathNotFound = 3;
 
@@ -101,6 +103,50 @@ internal static class FileBoundary
         // Preserve the original operation result. Stale temp files use a
         // hidden, collision-resistant name and can be removed later.
       }
+    }
+  }
+
+  /// <summary>
+  /// Re-checks a file this plugin just wrote for an external reader (the
+  /// publish DSD, whose DWF= line tells -PUBLISH where to write) and pins it
+  /// for that reader. The entry is opened without following links, must be a
+  /// regular file with a single hard link, and must hold exactly
+  /// <paramref name="expectedContent"/>; otherwise CIVIL3D.PATH_NOT_ALLOWED.
+  /// The returned handle shares read access only, so while it is held nobody
+  /// can write, delete, rename or replace the file. Dispose it after the reader
+  /// has finished.
+  /// </summary>
+  public static IDisposable HoldVerifiedFile(string resolvedPath, string expectedContent, Encoding encoding)
+  {
+    var path = Path.GetFullPath(resolvedPath);
+    var stream = OpenCheckedOutput(path, "it was not used")
+      ?? throw new JsonRpcDispatchException(
+        "CIVIL3D.PATH_NOT_ALLOWED",
+        $"'{path}' was removed by another process before it was used.");
+    try
+    {
+      var expected = encoding.GetBytes(expectedContent);
+      var matches = stream.Length == expected.Length;
+      if (matches)
+      {
+        var actual = new byte[expected.Length];
+        stream.ReadExactly(actual);
+        matches = actual.AsSpan().SequenceEqual(expected);
+      }
+
+      if (!matches)
+      {
+        throw new JsonRpcDispatchException(
+          "CIVIL3D.PATH_NOT_ALLOWED",
+          $"'{path}' was changed by another process after it was written; it was not used.");
+      }
+
+      return stream;
+    }
+    catch
+    {
+      stream.Dispose();
+      throw;
     }
   }
 
@@ -280,11 +326,14 @@ internal static class FileBoundary
   ///    would keep the name from being replaced during the write, but whether
   ///    the PDF driver then prompts, or needs to delete/rename the target, is
   ///    unverified, so no placeholder is used.
-  /// 4. After the writer finishes, Commit opens the final name without
-  ///    following links and requires a regular file with a single hard link
-  ///    before anything reads it. A symbolic link or an extra hard link
-  ///    planted there during the write is removed (the link, never its target)
-  ///    and the call fails with PATH_NOT_ALLOWED.
+  /// 4. After the writer finishes, Commit opens the final name once, without
+  ///    following links, and requires a regular file with a single hard link
+  ///    before anything reads it. The content check then reads that same open
+  ///    handle, never the name again, and the handle denies writers and
+  ///    delete/rename until the check is done, so the entry cannot be swapped
+  ///    for a link between the check and the read. A symbolic link or an extra
+  ///    hard link planted there during the write is removed (the link, never
+  ///    its target) and the call fails with PATH_NOT_ALLOWED.
   ///
   /// Trade-off: between step 3 and the plotter opening the file, a process
   /// with write access to the export folder could still plant a link at the
@@ -385,33 +434,32 @@ internal static class FileBoundary
     /// <summary>
     /// Verifies the writer's output is a regular, singly-linked file at the
     /// final name, runs <paramref name="verifyContent"/> on it, and only then
-    /// discards the backup of the replaced file. Any failure leaves the output
-    /// to Dispose, which removes it and restores the backup.
+    /// discards the backup of the replaced file. <paramref name="verifyContent"/>
+    /// gets the final path (for messages) and a read-only stream over the
+    /// handle that was checked, or null when nothing was written; it must read
+    /// the stream, not reopen the path. Any failure leaves the output to
+    /// Dispose, which removes it and restores the backup.
     /// </summary>
-    public T Commit<T>(Func<string, T> verifyContent)
+    public T Commit<T>(Func<string, FileStream?, T> verifyContent)
     {
       if (_directoryLock == null)
       {
         throw new ObjectDisposedException(nameof(ExternalWriterOutput));
       }
 
-      var entry = InspectEntry(FinalPath);
-      if (entry != null)
+      T result;
+      using (var output = OpenCheckedOutput(FinalPath, "it was removed"))
       {
-        var (attributes, links) = entry.Value;
-        if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || links != 1)
+        // A missing file is reported by verifyContent (for example "no PDF was written").
+        result = verifyContent(FinalPath, output);
+
+        // The handle denies delete/rename, so it is still the entry at the
+        // final name; confirm no hard link was added while it was read.
+        if (output != null)
         {
-          var kind = (attributes & FileAttributes.ReparsePoint) != 0
-            ? "a filesystem link"
-            : (attributes & FileAttributes.Directory) != 0 ? "a directory" : $"a file with {links} hard links";
-          throw new JsonRpcDispatchException(
-            "CIVIL3D.PATH_NOT_ALLOWED",
-            $"The output at '{FinalPath}' is {kind}, not the regular file the writer should have created; it was removed.");
+          RequireSingleRegularFile(output.SafeFileHandle, FinalPath, "it was removed");
         }
       }
-
-      // A missing file is reported by verifyContent (for example "no PDF was written").
-      var result = verifyContent(FinalPath);
 
       _committed = true;
       if (BackupPath != null)
@@ -488,13 +536,19 @@ internal static class FileBoundary
     }
   }
 
-  /// <summary>Attributes and hard-link count of the entry itself (not a link's target), or null when absent.</summary>
-  private static (FileAttributes Attributes, uint Links)? InspectEntry(string path)
+  /// <summary>
+  /// Opens the entry at <paramref name="path"/> itself (a link is not
+  /// followed) for reading, sharing read access only, so while the stream is
+  /// open nobody can write, delete, rename or replace the entry. Returns null
+  /// when nothing is there; throws PATH_NOT_ALLOWED unless it is a regular file
+  /// with a single hard link.
+  /// </summary>
+  private static FileStream? OpenCheckedOutput(string path, string outcome)
   {
-    using var handle = CreateFileW(
+    var handle = CreateFileW(
       path,
-      FileReadAttributes,
-      FileShare.ReadWrite | FileShare.Delete,
+      GenericRead | FileReadAttributes,
+      FileShare.Read,
       IntPtr.Zero,
       FileMode.Open,
       FileFlagBackupSemantics | FileFlagOpenReparsePoint,
@@ -502,16 +556,32 @@ internal static class FileBoundary
     if (handle.IsInvalid)
     {
       var error = Marshal.GetLastWin32Error();
+      handle.Dispose();
       if (error is ErrorFileNotFound or ErrorPathNotFound)
       {
         return null;
       }
 
+      var hint = error == ErrorSharingViolation ? " (is it still open in another program?)" : string.Empty;
       throw new JsonRpcDispatchException(
         "CIVIL3D.FILE_IO_ERROR",
-        $"Unable to inspect output file '{path}': {new Win32Exception(error).Message}");
+        $"Unable to open output file '{path}'{hint}: {new Win32Exception(error).Message}");
     }
 
+    try
+    {
+      RequireSingleRegularFile(handle, path, outcome);
+      return new FileStream(handle, FileAccess.Read);
+    }
+    catch
+    {
+      handle.Dispose();
+      throw;
+    }
+  }
+
+  private static void RequireSingleRegularFile(SafeFileHandle handle, string path, string outcome)
+  {
     if (!GetFileInformationByHandle(handle, out var information))
     {
       throw new JsonRpcDispatchException(
@@ -519,7 +589,17 @@ internal static class FileBoundary
         $"Unable to inspect output file '{path}': {new Win32Exception(Marshal.GetLastWin32Error()).Message}");
     }
 
-    return ((FileAttributes)information.FileAttributes, information.NumberOfLinks);
+    var attributes = (FileAttributes)information.FileAttributes;
+    var links = information.NumberOfLinks;
+    if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || links != 1)
+    {
+      var kind = (attributes & FileAttributes.ReparsePoint) != 0
+        ? "a filesystem link"
+        : (attributes & FileAttributes.Directory) != 0 ? "a directory" : $"a file with {links} hard links";
+      throw new JsonRpcDispatchException(
+        "CIVIL3D.PATH_NOT_ALLOWED",
+        $"The output at '{path}' is {kind}, not the regular file that was written; {outcome}.");
+    }
   }
 
   /// <summary>Removes the entry at <paramref name="path"/> (a link itself, never its target). True when nothing is left.</summary>

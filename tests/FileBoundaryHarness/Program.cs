@@ -70,12 +70,46 @@ try
     }
     Assert(chainBlocked, "The locked directory chain could be renamed while the writer lock was held.");
 
-    // Nested boundary writes (the publish DSD) still work under the lock.
-    FileBoundary.WriteAllTextAtomic(Path.Combine(plotDirectory, "C-101.mcp-publish.dsd"), "[DWF6Version]", Encoding.UTF8, overwrite: true, ".dsd");
+    // Nested boundary writes (the publish DSD) still work under the lock, and
+    // the DSD is re-checked and pinned while -PUBLISH reads it: other readers
+    // can read it, nobody can rewrite, delete or replace it.
+    var dsdPath = Path.Combine(plotDirectory, "C-101.mcp-publish.dsd");
+    var dsdContent = $"[Target]\r\nDWF={external.FinalPath}\r\n";
+    var elsewhere = "DWF=" + Path.Combine(outsideRoot, "elsewhere.pdf");
+    FileBoundary.WriteAllTextAtomic(dsdPath, dsdContent, new UTF8Encoding(false), overwrite: true, ".dsd");
+    using (FileBoundary.HoldVerifiedFile(dsdPath, dsdContent, new UTF8Encoding(false)))
+    {
+      Assert(File.ReadAllText(dsdPath) == dsdContent, "A held DSD could not be read by its reader.");
+      ExpectBlocked(() => File.WriteAllText(dsdPath, elsewhere), "A held DSD could be rewritten.");
+      ExpectBlocked(() => File.Delete(dsdPath), "A held DSD could be deleted.");
+      var swap = Path.Combine(plotDirectory, "swap.dsd");
+      File.WriteAllText(swap, elsewhere);
+      ExpectBlocked(() => File.Move(swap, dsdPath, overwrite: true), "A held DSD could be replaced by a rename.");
+      File.Delete(swap);
+    }
+    // A DSD changed after it was written (DWF= pointed elsewhere) is refused.
+    File.WriteAllText(dsdPath, dsdContent.Replace(external.FinalPath, Path.Combine(outsideRoot, "escape.pdf")), new UTF8Encoding(false));
+    ExpectCode("CIVIL3D.PATH_NOT_ALLOWED", () => FileBoundary.HoldVerifiedFile(dsdPath, dsdContent, new UTF8Encoding(false)).Dispose());
+    File.Delete(dsdPath);
+    ExpectCode("CIVIL3D.PATH_NOT_ALLOWED", () => FileBoundary.HoldVerifiedFile(dsdPath, dsdContent, new UTF8Encoding(false)).Dispose());
 
     File.WriteAllText(external.FinalPath, "%PDF-1.7");
-    var verified = external.Commit(path => File.ReadAllText(path));
-    Assert(verified == "%PDF-1.7", "Commit did not hand the final path to the content check.");
+    var verified = external.Commit((path, stream) =>
+    {
+      Assert(path == external.FinalPath && stream != null, "Commit did not hand the checked output to the content check.");
+      // The content check reads the handle Commit checked. While it runs the
+      // final entry cannot be deleted, renamed, replaced or rewritten, so it
+      // cannot be swapped for a link between the check and the read.
+      ExpectBlocked(() => File.Delete(path), "The checked output could be deleted during verification.");
+      ExpectBlocked(() => File.Move(path, path + ".moved"), "The checked output could be renamed during verification.");
+      var planted = Path.Combine(plotDirectory, "planted.pdf");
+      File.WriteAllText(planted, "planted");
+      ExpectBlocked(() => File.Move(planted, path, overwrite: true), "The checked output could be replaced during verification.");
+      File.Delete(planted);
+      ExpectBlocked(() => File.WriteAllText(path, "rewritten"), "The checked output could be rewritten during verification.");
+      return new StreamReader(stream!).ReadToEnd();
+    });
+    Assert(verified == "%PDF-1.7", "Commit did not hand the final file's content to the content check.");
   }
   Assert(File.ReadAllText(plotOutput) == "%PDF-1.7", "A committed output was not kept at the final name.");
   AssertNoStaging(plotDirectory, "a committed write");
@@ -93,7 +127,7 @@ try
     Assert(!File.Exists(plotOutput), "The final name was not cleared for the writer.");
     Assert(external.BackupPath != null && File.ReadAllText(external.BackupPath) == "%PDF-1.7", "The replaced file was not backed up.");
     File.WriteAllText(external.FinalPath, "%PDF-1.7 replaced");
-    external.Commit(path => path);
+    external.Commit((path, _) => path);
   }
   Assert(File.ReadAllText(plotOutput) == "%PDF-1.7 replaced", "An overwrite commit did not keep the new file.");
   AssertNoStaging(plotDirectory, "an overwrite commit");
@@ -114,7 +148,7 @@ try
   using (var external = FileBoundary.BeginExternalWrite(plotOutput, overwrite: true))
   {
     File.WriteAllText(external.FinalPath, string.Empty);
-    ExpectCode("CIVIL3D.API_ERROR", () => external.Commit<int>(_ => throw new JsonRpcDispatchException("CIVIL3D.API_ERROR", "empty")));
+    ExpectCode("CIVIL3D.API_ERROR", () => external.Commit<int>((_, _) => throw new JsonRpcDispatchException("CIVIL3D.API_ERROR", "empty")));
   }
   Assert(File.ReadAllText(plotOutput) == "%PDF-1.7 replaced", "A rejected output replaced the previous file.");
   AssertNoStaging(plotDirectory, "failed writes");
@@ -137,7 +171,7 @@ try
   {
     Assert(CreateHardLinkW(external.FinalPath, outsideTarget, IntPtr.Zero), "Could not create the test hard link.");
     var contentRead = false;
-    ExpectCode("CIVIL3D.PATH_NOT_ALLOWED", () => external.Commit(path => contentRead = true));
+    ExpectCode("CIVIL3D.PATH_NOT_ALLOWED", () => external.Commit((_, _) => contentRead = true));
     Assert(!contentRead, "The content check ran on a hard-linked output.");
   }
   Assert(File.ReadAllText(plotOutput) == "%PDF-1.7 replaced", "The previous file was not restored after a planted hard link.");
@@ -167,7 +201,7 @@ try
     using (var external = FileBoundary.BeginExternalWrite(symlinkOutput, overwrite: false))
     {
       File.CreateSymbolicLink(external.FinalPath, outsideTarget);
-      ExpectCode("CIVIL3D.PATH_NOT_ALLOWED", () => external.Commit(path => path));
+      ExpectCode("CIVIL3D.PATH_NOT_ALLOWED", () => external.Commit((path, _) => path));
     }
     Assert(!File.Exists(symlinkOutput) && new FileInfo(symlinkOutput).LinkTarget == null, "A planted symbolic link was not removed.");
     Assert(File.ReadAllText(outsideTarget) == "outside", "Removing the planted symbolic link touched its target.");
@@ -319,6 +353,24 @@ static void ExpectCode(string expectedCode, Action action)
   }
 
   throw new InvalidOperationException($"Expected JsonRpcDispatchException code {expectedCode}.");
+}
+
+static void ExpectBlocked(Action action, string message)
+{
+  try
+  {
+    action();
+  }
+  catch (IOException)
+  {
+    return;
+  }
+  catch (UnauthorizedAccessException)
+  {
+    return;
+  }
+
+  throw new InvalidOperationException(message);
 }
 
 static void Assert(bool condition, string message)
