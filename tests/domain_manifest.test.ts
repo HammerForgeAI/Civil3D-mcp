@@ -22,6 +22,16 @@ describe("domain manifest migration", () => {
     expect(alignment!.safeForRetry).toBe(false);
   });
 
+  it("registers the layer reader and the fase 1 audit as read-only operations", () => {
+    const geometry = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_geometry");
+    const workflow = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_workflow");
+
+    expect(geometry!.operations).toContain("list_layers");
+    expect(workflow!.operations).toContain("fase1_audit");
+    expect(GENERATED_TOOL_CATALOG_ENTRIES.some((entry) => entry.toolName === "acad_list_layers")).toBe(true);
+    expect(GENERATED_TOOL_CATALOG_ENTRIES.some((entry) => entry.toolName === "civil3d_workflow_fase1_audit")).toBe(true);
+  });
+
   it("registers bulk erase and gravity network delete as approval-gated operations", () => {
     const geometry = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_geometry");
     const pipe = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_pipe");

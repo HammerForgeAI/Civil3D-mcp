@@ -60,6 +60,7 @@ public static class CommandDispatcher
       "createLineSegment" => AcadCommands.CreateLineSegmentAsync(parameters),
       "insertBlockReference" => AcadCommands.InsertBlockReferenceAsync(parameters),
       "attachXref" => LayerXrefCommands.AttachXrefAsync(parameters),
+      "listLayers" => LayerXrefCommands.ListLayersAsync(parameters),
       "createOrUpdateLayer" => LayerXrefCommands.CreateOrUpdateLayerAsync(parameters),
       "purgeUnused" => PurgeAuditCommands.PurgeUnusedAsync(parameters),
       "auditDrawing" => PurgeAuditCommands.AuditDrawingAsync(parameters),

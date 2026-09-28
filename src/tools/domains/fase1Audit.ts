@@ -1,0 +1,151 @@
+/**
+ * Fase 1 audit: is the open drawing "existing conditions only"? (firm rule, see the civil3d-mcp-workflows skill,
+ * references/c300-water-sewer-plan.md section "Fase 1: definicion de terminado".) Read-only: composes plugin queries only.
+ *
+ * Kept free of MCP/zod imports so it can be unit-tested with a fake `send`.
+ */
+export type Fase1Level = "OK" | "WARN" | "FAIL";
+
+export interface Fase1Check {
+  level: Fase1Level;
+  what: string;
+  detail: string;
+}
+
+export interface Fase1AuditOptions {
+  /** Style every alignment must use. */
+  alignmentStyle?: string;
+  /** Layer that carries the EG surface boundary polygon; must be frozen when a surface exists. */
+  boundaryLayer?: string;
+  /** Layouts a Fase 1 drawing may have. */
+  allowedLayouts?: string[];
+}
+
+export type PluginSend = (method: string, params: Record<string, unknown>) => Promise<unknown>;
+
+type Loose = Record<string, unknown>;
+
+const stripMText = (value: unknown): string =>
+  String(value ?? "").replace(/\\P/g, " ").replace(/\\[A-Za-z][^;\\]*;/g, "").replace(/[{}]/g, "");
+
+const isPropText = (value: unknown): boolean => /\bPROP\b|\bPROPOSED\b/i.test(stripMText(value));
+
+const asArray = (value: unknown): Loose[] => (Array.isArray(value) ? (value as Loose[]) : []);
+
+export async function runFase1Audit(send: PluginSend, options: Fase1AuditOptions = {}): Promise<Fase1Check[]> {
+  const wantedStyle = options.alignmentStyle ?? "BCC - ALIGNMENT";
+  const boundaryLayer = options.boundaryLayer ?? "C-TINN-BNDY";
+  const allowedLayouts = options.allowedLayouts ?? ["Model", "C-300"];
+  const checks: Fase1Check[] = [];
+  const add = (level: Fase1Level, what: string, detail = "") => checks.push({ level, what, detail });
+
+  const call = async (method: string, params: Record<string, unknown> = {}): Promise<{ ok: true; value: Loose } | { ok: false; error: string }> => {
+    try {
+      return { ok: true, value: ((await send(method, params)) ?? {}) as Loose };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  };
+
+  // 1. layouts
+  const layouts = await call("listLayouts");
+  if (!layouts.ok) {
+    add("WARN", "layouts", layouts.error);
+  } else {
+    const names = asArray(layouts.value.layouts).map((l) => String(l.name));
+    const extra = names.filter((n) => !allowedLayouts.includes(n));
+    const missing = allowedLayouts.filter((n) => n !== "Model" && !names.includes(n));
+    if (missing.length) {
+      add("FAIL", "layouts", `missing ${missing.join(", ")} (found: ${names.join(", ")})`);
+    } else if (extra.length) {
+      add("FAIL", "layouts", `extra layouts ${extra.join(", ")} (fase 1 = ${allowedLayouts.join(" + ")} only) -> acad_layout delete_layout`);
+    } else {
+      add("OK", "layouts", names.join(", "));
+    }
+  }
+
+  // 2. PROP / PROPOSED wording
+  const text = await call("listTextEntities", { space: "all", limit: 500 });
+  if (!text.ok) {
+    add("WARN", "text scan", text.error);
+  } else {
+    const entities = asArray(text.value.entities);
+    const model = entities.filter((e) => e.space === "model" && isPropText(e.text));
+    const paper = entities.filter((e) => e.space === "paper" && isPropText(e.text));
+    if (model.length) {
+      add("FAIL", "PROP text in Model", `${model.length} item(s): ${model.slice(0, 12).map((e) => `${e.handle}:${stripMText(e.text).slice(0, 40)}`).join(" | ")}${model.length > 12 ? " ..." : ""}`);
+    } else {
+      add("OK", "PROP text in Model", "none");
+    }
+    if (paper.length) {
+      add("FAIL", "PROP/PROPOSED wording in paper space", `${paper.length} note MText(s) (${paper.map((e) => `${e.layout}:${e.handle}`).join(", ")}) -> strip with fase1-strip-prop-notes.mjs + acad_update_text_content; erase off-sheet template notes`);
+    } else {
+      add("OK", "PROP/PROPOSED in paper space", "none");
+    }
+  }
+
+  // 3. design objects
+  const pressure = await call("listPressureNetworks");
+  if (!pressure.ok) add("WARN", "pressure networks", pressure.error);
+  else if (asArray(pressure.value.networks).length) add("FAIL", "pressure networks", `${asArray(pressure.value.networks).map((n) => n.name).join(", ")} -> civil3d_pressure_network_delete`);
+  else add("OK", "pressure networks", "none");
+
+  const views = await call("profileViewInfo");
+  if (!views.ok) add("WARN", "profile views", views.error);
+  else if (asArray(views.value.profileViews).length) add("FAIL", "profile views", `${asArray(views.value.profileViews).map((v) => v.profileViewName).join(" | ")} -> acad_erase_entities`);
+  else add("OK", "profile views", "none");
+
+  const gravity = await call("listPipeNetworks");
+  if (!gravity.ok) add("WARN", "gravity pipe networks", `cannot list (${gravity.error}); an empty shell may remain -> civil3d_pipe_network_delete {name}`);
+  else if (asArray(gravity.value.networks).length) add("FAIL", "gravity pipe networks", `${asArray(gravity.value.networks).map((n) => n.name).join(", ")} -> civil3d_pipe_network_delete`);
+  else add("OK", "gravity pipe networks", "none");
+
+  // 4. alignment style
+  const alignments = await call("listAlignments");
+  if (!alignments.ok) {
+    add("WARN", "alignments", alignments.error);
+  } else {
+    const list = asArray(alignments.value.alignments);
+    for (const alignment of list) {
+      const detail = await call("getAlignment", { name: alignment.name });
+      const style = detail.ok ? String(detail.value.style ?? "?") : "?";
+      if (style.toLowerCase() === wantedStyle.toLowerCase()) {
+        add("OK", `alignment ${alignment.name}`, `style ${style}`);
+      } else {
+        add("FAIL", `alignment ${alignment.name}`, `style "${style}" != "${wantedStyle}" -> civil3d_alignment set_style {name:"${alignment.name}", style:"${wantedStyle}"}`);
+      }
+    }
+    if (!list.length) add("WARN", "alignments", "none in the drawing");
+  }
+
+  // 5. EG surface boundary hidden (live layer state, needs the listLayers plugin method)
+  const surfaces = await call("listSurfaces");
+  const surfaceList = surfaces.ok ? asArray(surfaces.value.surfaces) : [];
+  if (!surfaceList.length) {
+    add("OK", "surface boundary", "no surface in the drawing");
+  } else {
+    const layer = await call("listLayers", { name: boundaryLayer, includeXref: false });
+    if (!layer.ok) {
+      add("WARN", "surface boundary", `surface(s) ${surfaceList.map((s) => s.name).join(", ")} present but the layer reader is unavailable (${layer.error}); check that ${boundaryLayer} is frozen`);
+    } else {
+      const found = asArray(layer.value.layers)[0];
+      if (!found) add("WARN", "surface boundary", `layer ${boundaryLayer} not found although surface(s) exist`);
+      else if (found.isFrozen === true || found.isOff === true) add("OK", "surface boundary", `${boundaryLayer} is ${found.isFrozen ? "frozen" : "off"} (live)`);
+      else add("FAIL", "surface boundary", `${boundaryLayer} is visible: the green EG boundary shows -> acad_create_or_update_layer {name:"${boundaryLayer}", frozen:true}`);
+    }
+  }
+
+  return checks;
+}
+
+export function summarizeFase1(checks: Fase1Check[]): { fail: number; warn: number; ok: number; summary: string } {
+  const fail = checks.filter((c) => c.level === "FAIL").length;
+  const warn = checks.filter((c) => c.level === "WARN").length;
+  const ok = checks.filter((c) => c.level === "OK").length;
+  return {
+    fail,
+    warn,
+    ok,
+    summary: fail ? `Fase 1 audit: ${fail} FAIL, ${warn} WARN, ${ok} OK` : `Fase 1 audit: no FAIL (${warn} WARN, ${ok} OK)`,
+  };
+}

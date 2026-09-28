@@ -4,6 +4,7 @@ import type { DomainToolDefinition } from "../domainRuntime.js";
 import { PIPE_DOMAIN_DEFINITION } from "./pipeDomain.js";
 import { SURFACE_DOMAIN_DEFINITION } from "./surfaceDomain.js";
 import { SURVEY_DOMAIN_DEFINITION } from "./surveyDomain.js";
+import { runFase1Audit, summarizeFase1 } from "./fase1Audit.js";
 
 const SurfaceVolumeMethodSchema = z.enum(["tin_volume", "average_end_area", "prismoidal"]);
 const WorkflowDataShortcutObjectTypeSchema = z.enum([
@@ -78,7 +79,11 @@ const canonicalWorkflowInputShape = {
     "pipe_network_design",
     "plan_production_publish",
     "qc_fix_and_verify",
+    "fase1_audit",
   ]),
+  alignmentStyle: z.string().optional(),
+  boundaryLayer: z.string().optional(),
+  allowedLayouts: z.array(z.string()).optional(),
   corridorName: z.string().optional(),
   outputPath: z.string().optional(),
   overwrite: z.boolean().optional(),
@@ -209,6 +214,13 @@ const ProjectReferenceSetupArgsSchema = z.object({
   dryRun: z.boolean().optional(),
   saveAs: z.string().optional(),
   overwrite: z.boolean().optional(),
+});
+
+const Fase1AuditArgsSchema = z.object({
+  action: z.literal("fase1_audit"),
+  alignmentStyle: z.string().optional(),
+  boundaryLayer: z.string().optional(),
+  allowedLayouts: z.array(z.string()).optional(),
 });
 
 const DrawingReadinessAuditArgsSchema = z.object({
@@ -449,6 +461,45 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
           overwrite: args.overwrite ?? false,
         }),
       ),
+    },
+    fase1_audit: {
+      action: "fase1_audit",
+      inputSchema: Fase1AuditArgsSchema,
+      responseSchema: WorkflowResponseSchema,
+      capabilities: ["query", "inspect", "analyze"],
+      requiresActiveDrawing: true,
+      safeForRetry: true,
+      pluginMethods: [
+        "listLayouts",
+        "listTextEntities",
+        "listPressureNetworks",
+        "profileViewInfo",
+        "listPipeNetworks",
+        "listAlignments",
+        "getAlignment",
+        "listSurfaces",
+        "listLayers",
+      ],
+      execute: async (args) => await withApplicationConnection(async (appClient) => {
+        const checks = await runFase1Audit((method, params) => appClient.sendCommand(method, params), {
+          alignmentStyle: args.alignmentStyle as string | undefined,
+          boundaryLayer: args.boundaryLayer as string | undefined,
+          allowedLayouts: args.allowedLayouts as string[] | undefined,
+        });
+        const totals = summarizeFase1(checks);
+        return buildWorkflowResult(
+          "fase1_audit",
+          totals.summary,
+          checks.map((check) => ({
+            name: check.what,
+            action: "fase1.audit",
+            status: "completed" as const,
+            result: { level: check.level, detail: check.detail },
+          })),
+          { fail: totals.fail, warn: totals.warn, ok: totals.ok, checks },
+          checks.filter((check) => check.level !== "OK").map((check) => `${check.level} ${check.what}: ${check.detail}`),
+        );
+      }),
     },
     drawing_readiness_audit: {
       action: "drawing_readiness_audit",
@@ -749,6 +800,7 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
         "pipe_network_design",
         "plan_production_publish",
         "qc_fix_and_verify",
+        "fase1_audit",
       ],
       capabilities: ["query", "analyze", "generate", "edit", "manage", "export", "create", "import"],
       requiresActiveDrawing: true,
@@ -915,6 +967,26 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
           dryRun: rawArgs.dryRun,
           saveAs: rawArgs.saveAs,
           overwrite: rawArgs.overwrite,
+        },
+      }),
+    },
+    {
+      toolName: "civil3d_workflow_fase1_audit",
+      displayName: "Civil 3D Workflow Fase 1 Audit",
+      description: "Read-only audit of the open drawing against the firm's 'Fase 1 = existing conditions only' rule: only Model + C-300 layouts, no PROP/PROPOSED wording, no pressure/gravity networks or profile views, every alignment in the firm style (default BCC - ALIGNMENT) and the EG surface boundary layer (default C-TINN-BNDY) frozen. Returns every check with OK/WARN/FAIL and the exact tool call that fixes each FAIL.",
+      inputShape: {
+        alignmentStyle: z.string().optional(),
+        boundaryLayer: z.string().optional(),
+        allowedLayouts: z.array(z.string()).optional(),
+      },
+      supportedActions: ["fase1_audit"],
+      resolveAction: (rawArgs) => ({
+        action: "fase1_audit",
+        args: {
+          action: "fase1_audit",
+          alignmentStyle: rawArgs.alignmentStyle,
+          boundaryLayer: rawArgs.boundaryLayer,
+          allowedLayouts: rawArgs.allowedLayouts,
         },
       }),
     },

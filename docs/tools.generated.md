@@ -2,7 +2,7 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 241
+- Catalog entries: 243
 - Domains: 29
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
@@ -69,6 +69,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `acad_layout` | geometry | list_layouts, new_layout, copy_layout, rename_layout, delete_layout, set_viewport_scale | listLayouts, createLayout, copyLayout, renameLayout, deleteLayout, setViewportAnnotationScale | no |
 | `acad_list_block_references` | geometry | — | listBlockReferences | yes |
 | `acad_list_dimensions` | geometry | — | listDimensions | yes |
+| `acad_list_layers` | geometry | — | listLayers | yes |
 | `acad_list_polyline_entities` | geometry | — | listPolylineEntities | yes |
 | `acad_list_shape_entities` | geometry | — | listShapeEntities | yes |
 | `acad_list_text_entities` | geometry | — | listTextEntities | yes |
@@ -82,7 +83,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_cogo_direction_distance` | geometry | — | cogoDirectionDistance | yes |
 | `civil3d_cogo_inverse` | geometry | — | cogoInverse | yes |
 | `civil3d_cogo_traverse` | geometry | — | cogoTraverse | yes |
-| `civil3d_geometry` | geometry | cogo_inverse, cogo_direction_distance, cogo_traverse, cogo_curve_solve, create_line_segment, create_polyline, create_3dpolyline, create_text, create_mtext, create_mleader, list_text_entities, list_polyline_entities, list_block_references, list_shape_entities, update_text_content, update_block_reference, erase_entity, erase_entities, attach_xref, create_or_update_layer, purge_unused, audit_drawing, insert_block_reference, list_dimensions, create_aligned_dimension, list_viewports, set_viewport_twist, create_entities, list_layouts, new_layout, copy_layout, rename_layout, delete_layout, set_viewport_scale | cogoInverse, cogoDirectionDistance, cogoTraverse, cogoCurveSolve, createLineSegment, createPolyline, create3dPolyline, createText, createMText, createMLeader, listTextEntities, listPolylineEntities, listBlockReferences, listShapeEntities, updateTextContent, updateBlockReference, eraseEntity, eraseEntities, attachXref, createOrUpdateLayer, purgeUnused, auditDrawing, insertBlockReference, listDimensions, createAlignedDimension, listViewports, setViewportTwist, createEntities, listLayouts, createLayout, copyLayout, renameLayout, deleteLayout, setViewportAnnotationScale | no |
+| `civil3d_geometry` | geometry | cogo_inverse, cogo_direction_distance, cogo_traverse, cogo_curve_solve, create_line_segment, create_polyline, create_3dpolyline, create_text, create_mtext, create_mleader, list_text_entities, list_polyline_entities, list_block_references, list_shape_entities, update_text_content, update_block_reference, erase_entity, erase_entities, attach_xref, create_or_update_layer, purge_unused, audit_drawing, insert_block_reference, list_dimensions, create_aligned_dimension, list_viewports, set_viewport_twist, create_entities, list_layouts, new_layout, copy_layout, rename_layout, delete_layout, set_viewport_scale, list_layers | cogoInverse, cogoDirectionDistance, cogoTraverse, cogoCurveSolve, createLineSegment, createPolyline, create3dPolyline, createText, createMText, createMLeader, listTextEntities, listPolylineEntities, listBlockReferences, listShapeEntities, updateTextContent, updateBlockReference, eraseEntity, eraseEntities, attachXref, createOrUpdateLayer, purgeUnused, auditDrawing, insertBlockReference, listDimensions, createAlignedDimension, listViewports, setViewportTwist, createEntities, listLayouts, createLayout, copyLayout, renameLayout, deleteLayout, setViewportAnnotationScale, listLayers | no |
 | `create_line_segment` | geometry | — | createLineSegment | no |
 | `civil3d_feature_line` | grading | list, get, export_as_polyline | listFeatureLines, getFeatureLine, exportFeatureLineAsPolyline | no |
 | `civil3d_feature_line_create` | grading | — | createFeatureLine | no |
@@ -235,11 +236,12 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_survey_figure_get` | survey | — | getSurveyFigure | yes |
 | `civil3d_survey_figure_list` | survey | — | listSurveyFigures | yes |
 | `civil3d_survey_observation_list` | survey | — | listSurveyObservations | yes |
-| `civil3d_workflow` | workflow | corridor_qc_report, grading_surface_volume, surface_comparison_report, data_shortcut_publish_sync, data_shortcut_reference_sync, project_startup, project_reference_setup, drawing_readiness_audit, feature_line_to_grading, pipe_network_design, plan_production_publish, qc_fix_and_verify | corridorQcReportWorkflow, calculateSurfaceVolume, surfaceComparisonReportWorkflow, dataShortcutPublishSyncWorkflow, dataShortcutReferenceSyncWorkflow, projectStartupWorkflow, projectReferenceSetupWorkflow, drawingReadinessAuditWorkflow, featureLineToGradingWorkflow, getPipeNetwork, listPipePartsCatalog, resizePipeInNetwork, analyzePipeNetworkHydraulics, planProductionPublishWorkflow, qcFixAndVerifyWorkflow | no |
+| `civil3d_workflow` | workflow | corridor_qc_report, grading_surface_volume, surface_comparison_report, data_shortcut_publish_sync, data_shortcut_reference_sync, project_startup, project_reference_setup, drawing_readiness_audit, feature_line_to_grading, pipe_network_design, plan_production_publish, qc_fix_and_verify, fase1_audit | corridorQcReportWorkflow, calculateSurfaceVolume, surfaceComparisonReportWorkflow, dataShortcutPublishSyncWorkflow, dataShortcutReferenceSyncWorkflow, projectStartupWorkflow, projectReferenceSetupWorkflow, drawingReadinessAuditWorkflow, featureLineToGradingWorkflow, getPipeNetwork, listPipePartsCatalog, resizePipeInNetwork, analyzePipeNetworkHydraulics, planProductionPublishWorkflow, qcFixAndVerifyWorkflow, listLayouts, listTextEntities, listPressureNetworks, profileViewInfo, listPipeNetworks, listAlignments, getAlignment, listSurfaces, listLayers | no |
 | `civil3d_workflow_corridor_qc_report` | workflow | — | corridorQcReportWorkflow | no |
 | `civil3d_workflow_data_shortcut_publish_sync` | workflow | — | dataShortcutPublishSyncWorkflow | no |
 | `civil3d_workflow_data_shortcut_reference_sync` | workflow | — | dataShortcutReferenceSyncWorkflow | no |
 | `civil3d_workflow_drawing_readiness_audit` | workflow | — | drawingReadinessAuditWorkflow | yes |
+| `civil3d_workflow_fase1_audit` | workflow | — | listLayouts, listTextEntities, listPressureNetworks, profileViewInfo, listPipeNetworks, listAlignments, getAlignment, listSurfaces, listLayers | yes |
 | `civil3d_workflow_feature_line_to_grading` | workflow | — | featureLineToGradingWorkflow | no |
 | `civil3d_workflow_grading_surface_volume` | workflow | — | calculateSurfaceVolume | yes |
 | `civil3d_workflow_pipe_network_design` | workflow | — | getPipeNetwork, listPipePartsCatalog, resizePipeInNetwork, analyzePipeNetworkHydraulics | no |
