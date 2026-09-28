@@ -44,6 +44,7 @@ const canonicalPipeInputShape = {
     "get_pressure_network",
     "create_pressure_network",
     "delete_pressure_network",
+    "delete_pipe_network",
     "assign_pressure_parts_list",
     "set_pressure_cover",
     "validate_pressure_network",
@@ -219,6 +220,7 @@ const PipeCreatePressureNetworkArgsSchema = z.object({
   referenceSurface: z.string().optional(),
 });
 const PipeDeletePressureNetworkArgsSchema = z.object({ action: z.literal("delete_pressure_network"), name: z.string() });
+const PipeDeletePipeNetworkArgsSchema = z.object({ action: z.literal("delete_pipe_network"), name: z.string() });
 const PipeAssignPressurePartsListArgsSchema = z.object({
   action: z.literal("assign_pressure_parts_list"),
   networkName: z.string(),
@@ -656,6 +658,16 @@ export const PIPE_DOMAIN_DEFINITION: DomainToolDefinition = {
       pluginMethods: ["deletePressureNetwork"],
       execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("deletePressureNetwork", { name: args.name })),
     },
+    delete_pipe_network: {
+      action: "delete_pipe_network",
+      inputSchema: PipeDeletePipeNetworkArgsSchema,
+      responseSchema: GenericPipeResponseSchema,
+      capabilities: ["delete"],
+      requiresActiveDrawing: true,
+      safeForRetry: false,
+      pluginMethods: ["deletePipeNetwork"],
+      execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("deletePipeNetwork", { name: args.name })),
+    },
     assign_pressure_parts_list: {
       action: "assign_pressure_parts_list",
       inputSchema: PipeAssignPressurePartsListArgsSchema,
@@ -847,7 +859,7 @@ export const PIPE_DOMAIN_DEFINITION: DomainToolDefinition = {
       supportedActions: [
         "list", "get", "get_pipe", "get_structure", "check_interference", "create", "add_pipe", "add_structure",
         "catalog_list", "calculate_hgl", "hydraulic_analysis", "get_structure_properties", "size_network", "automate_profile_view",
-        "list_pressure_networks", "get_pressure_network", "create_pressure_network", "delete_pressure_network",
+        "list_pressure_networks", "get_pressure_network", "create_pressure_network", "delete_pressure_network", "delete_pipe_network",
         "assign_pressure_parts_list", "set_pressure_cover", "validate_pressure_network", "export_pressure_network",
         "connect_pressure_networks", "add_pressure_pipe", "get_pressure_pipe_properties", "resize_pressure_pipe",
         "add_pressure_fitting", "get_pressure_fitting_properties", "add_pressure_appurtenance",
@@ -979,6 +991,14 @@ export const PIPE_DOMAIN_DEFINITION: DomainToolDefinition = {
       inputShape: { name: z.string() },
       supportedActions: ["delete_pressure_network"],
       resolveAction: (rawArgs) => ({ action: "delete_pressure_network", args: { action: "delete_pressure_network", name: rawArgs.name } }),
+    },
+    {
+      toolName: "civil3d_pipe_network_delete",
+      displayName: "Civil 3D Pipe Network Delete",
+      description: "Deletes a gravity (sanitary/storm) pipe network with all its pipes and structures, or removes an empty shell left after erasing its parts. For pressure (water) networks use civil3d_pressure_network_delete. Get the network name from civil3d_pipe get_structure/get_pipe connected names (list can fail with 'Retrieve attribute failed').",
+      inputShape: { name: z.string() },
+      supportedActions: ["delete_pipe_network"],
+      resolveAction: (rawArgs) => ({ action: "delete_pipe_network", args: { action: "delete_pipe_network", name: rawArgs.name } }),
     },
     {
       toolName: "civil3d_pressure_network_assign_parts_list",

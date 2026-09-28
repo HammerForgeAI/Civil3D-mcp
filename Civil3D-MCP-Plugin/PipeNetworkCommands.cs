@@ -338,6 +338,19 @@ public static class PipeNetworkCommands
     }
   }
 
+  // Deletes a gravity (non-pressure) pipe network with all its pipes and structures. Empty shells left behind after erasing
+  // the parts one by one (e.g. "PROP SAN SEWER") are removed the same way.
+  public static Task<object?> DeletePipeNetworkAsync(JsonObject? parameters)
+  {
+    var name = PluginRuntime.GetRequiredString(parameters, "name");
+    return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
+    {
+      var network = FindPipeNetworkByName(civilDoc, transaction, name, OpenMode.ForWrite);
+      network.Erase();
+      return new Dictionary<string, object?> { ["deleted"] = true, ["name"] = name };
+    });
+  }
+
   private static Network FindPipeNetworkByName(object civilDoc, Transaction transaction, string name, OpenMode openMode)
   {
     foreach (var network in EnumeratePipeNetworks(civilDoc, transaction, openMode))

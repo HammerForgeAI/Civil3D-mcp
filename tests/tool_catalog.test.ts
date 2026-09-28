@@ -92,6 +92,8 @@ describe("Tool Catalog", () => {
       "list_tool_capabilities",
       "civil3d_alignment_add_tangent",
       "civil3d_alignment_set_style",
+      "acad_erase_entities",
+      "civil3d_pipe_network_delete",
       "civil3d_profile_add_pvi",
       "civil3d_corridor_target_mapping_get",
       "civil3d_section_view_create",

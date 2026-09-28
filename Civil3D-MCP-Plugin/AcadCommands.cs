@@ -1356,6 +1356,84 @@ public static class AcadCommands
     });
   }
 
+  // Bulk erase for repetitive clean-ups (e.g. turning a fase-2/3 file back into a fase-1 file): ONE approval and ONE
+  // transaction for up to 500 handles, in the given order (erase pipes before their structures). A handle that no longer
+  // exists or was already erased by a cascade (network parts, labels of an erased parent) is reported in `skipped`
+  // instead of aborting, unless ignoreMissing=false.
+  public static Task<object?> EraseEntitiesAsync(JsonObject? parameters)
+  {
+    if (PluginRuntime.GetParameter(parameters, "handles") is not JsonArray handles || handles.Count == 0)
+    {
+      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "eraseEntities requires a non-empty 'handles' array.");
+    }
+
+    if (handles.Count > 500)
+    {
+      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"eraseEntities accepts at most 500 handles per call (got {handles.Count}); split the list.");
+    }
+
+    var ignoreMissing = PluginRuntime.GetOptionalBool(parameters, "ignoreMissing") ?? true;
+    var handleTexts = new List<string>();
+    foreach (var node in handles)
+    {
+      var text = node?.GetValue<string>() ?? string.Empty;
+      try
+      {
+        _ = Convert.ToInt64(text, 16);
+      }
+      catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException)
+      {
+        throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"Handle '{text}' is not a valid hexadecimal handle.");
+      }
+
+      handleTexts.Add(text);
+    }
+
+    return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
+    {
+      var erased = new List<Dictionary<string, object?>>();
+      var skipped = new List<Dictionary<string, object?>>();
+      foreach (var handleText in handleTexts)
+      {
+        // Database.GetObjectId throws (eUnknownHandle) for a handle that never existed in this drawing.
+        var objectId = ObjectId.Null;
+        try
+        {
+          objectId = database.GetObjectId(false, new Handle(Convert.ToInt64(handleText, 16)), 0);
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+          // treated as missing below
+        }
+
+        if (objectId.IsNull || objectId.IsErased)
+        {
+          if (!ignoreMissing)
+          {
+            throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"Entity with handle '{handleText}' was not found or is already erased.");
+          }
+
+          skipped.Add(new Dictionary<string, object?> { ["handle"] = handleText, ["reason"] = "not found or already erased" });
+          continue;
+        }
+
+        var entity = CivilObjectUtils.GetRequiredObject<Entity>(transaction, objectId, OpenMode.ForWrite);
+        var entityType = entity.GetType().Name;
+        var layerName = entity.Layer;
+        entity.Erase();
+        erased.Add(new Dictionary<string, object?> { ["handle"] = handleText, ["entityType"] = entityType, ["layer"] = layerName });
+      }
+
+      return new Dictionary<string, object?>
+      {
+        ["erasedCount"] = erased.Count,
+        ["skippedCount"] = skipped.Count,
+        ["erased"] = erased,
+        ["skipped"] = skipped,
+      };
+    });
+  }
+
   public static Task<object?> EraseEntityAsync(JsonObject? parameters)
   {
     var handleValue = PluginRuntime.GetRequiredString(parameters, "handle");

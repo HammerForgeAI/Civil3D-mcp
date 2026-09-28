@@ -22,6 +22,14 @@ describe("domain manifest migration", () => {
     expect(alignment!.safeForRetry).toBe(false);
   });
 
+  it("registers bulk erase and gravity network delete as approval-gated operations", () => {
+    const geometry = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_geometry");
+    const pipe = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_pipe");
+
+    expect(geometry!.operations).toContain("erase_entities");
+    expect(pipe!.operations).toContain("delete_pipe_network");
+  });
+
   it("generates expanded canonical surface operations and legacy surface_edit exposure", () => {
     const surface = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_surface");
     const surfaceEdit = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_surface_edit");
