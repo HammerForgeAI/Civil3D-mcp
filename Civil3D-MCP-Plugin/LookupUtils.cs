@@ -76,47 +76,50 @@ public static class LookupUtils
     return ObjectId.Null;
   }
 
+  // Style lookups. With no name each returns the drawing's first style of that
+  // kind (ObjectId.Null only when the drawing has none), except where noted.
+  // A name that does not exist is CIVIL3D.INVALID_INPUT listing the available
+  // names; it used to fall back silently to the first style (for profiles in
+  // the NCS template, "Existing Ground Profile"). Matching is exact first, then
+  // case-insensitive. Names are read via CivilObjectUtils.GetName, which on
+  // Civil 3D 2027 returned null for every style (StyleBase hides the Name
+  // getter), so before that fix no named lookup ever matched.
+
   public static ObjectId GetAlignmentStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
-    return GetStyleId(civilDoc.Styles.AlignmentStyles, transaction, styleName);
+    return GetStyleId(civilDoc.Styles.AlignmentStyles, transaction, styleName, "Alignment style");
   }
 
   public static ObjectId GetProfileStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
-    return GetStyleId(civilDoc.Styles.ProfileStyles, transaction, styleName);
+    return GetStyleId(civilDoc.Styles.ProfileStyles, transaction, styleName, "Profile style");
   }
 
   public static ObjectId GetSurfaceStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
-    return GetStyleId(civilDoc.Styles.SurfaceStyles, transaction, styleName);
+    return GetStyleId(civilDoc.Styles.SurfaceStyles, transaction, styleName, "Surface style");
   }
 
   public static ObjectId GetAlignmentLabelSetId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
-    return GetStyleId(civilDoc.Styles.LabelSetStyles.AlignmentLabelSetStyles, transaction, styleName);
+    return GetStyleId(civilDoc.Styles.LabelSetStyles.AlignmentLabelSetStyles, transaction, styleName, "Alignment label set");
   }
 
   public static ObjectId GetProfileLabelSetId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
-    return GetStyleId(civilDoc.Styles.LabelSetStyles.ProfileLabelSetStyles, transaction, styleName);
+    return GetStyleId(civilDoc.Styles.LabelSetStyles.ProfileLabelSetStyles, transaction, styleName, "Profile label set");
   }
 
-  /// <summary>
-  /// The named profile view style; with no name (or an unknown one) the
-  /// drawing's first profile view style; ObjectId.Null only when the drawing
-  /// has none.
-  /// </summary>
   public static ObjectId GetProfileViewStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
-    return GetStyleId(civilDoc.Styles.ProfileViewStyles, transaction, styleName);
+    return GetStyleId(civilDoc.Styles.ProfileViewStyles, transaction, styleName, "Profile view style");
   }
 
   /// <summary>
   /// The named profile view band set. Band sets live on StylesRoot, not on
   /// LabelSetStylesRoot (the old reflective lookup there always returned
   /// Null). With no name this returns ObjectId.Null unless
-  /// <paramref name="fallbackToFirst"/> is set; an unknown name falls back to
-  /// the first band set, like the other style lookups.
+  /// <paramref name="fallbackToFirst"/> is set.
   /// </summary>
   public static ObjectId GetProfileViewBandSetId(CivilDocument civilDoc, Transaction transaction, string? bandSetName, bool fallbackToFirst = false)
   {
@@ -125,36 +128,38 @@ public static class LookupUtils
       return ObjectId.Null;
     }
 
-    return GetStyleId(civilDoc.Styles.ProfileViewBandSetStyles, transaction, bandSetName);
+    return GetStyleId(civilDoc.Styles.ProfileViewBandSetStyles, transaction, bandSetName, "Profile view band set");
   }
 
   public static ObjectId GetParcelStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
-    return GetStyleId(civilDoc.Styles.ParcelStyles, transaction, styleName);
+    return GetStyleId(civilDoc.Styles.ParcelStyles, transaction, styleName, "Parcel style");
   }
 
   public static ObjectId GetParcelAreaLabelStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
-    return GetStyleId(civilDoc.Styles.LabelStyles.ParcelLabelStyles.AreaLabelStyles, transaction, styleName);
+    return GetStyleId(civilDoc.Styles.LabelStyles.ParcelLabelStyles.AreaLabelStyles, transaction, styleName, "Parcel area label style");
   }
 
   public static ObjectId GetSectionViewStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
-    return GetStyleId(civilDoc.Styles.SectionViewStyles, transaction, styleName);
+    return GetStyleId(civilDoc.Styles.SectionViewStyles, transaction, styleName, "Section view style");
   }
 
+  /// <summary>With no name, ObjectId.Null (Civil 3D's default).</summary>
   public static ObjectId GetSectionViewBandSetId(CivilDocument civilDoc, Transaction transaction, string? bandSetName)
   {
     return string.IsNullOrWhiteSpace(bandSetName)
       ? ObjectId.Null
-      : GetStyleId(civilDoc.Styles.SectionViewBandSetStyles, transaction, bandSetName);
+      : GetStyleId(civilDoc.Styles.SectionViewBandSetStyles, transaction, bandSetName, "Section view band set");
   }
 
+  /// <summary>With no name, ObjectId.Null (Civil 3D's default).</summary>
   public static ObjectId GetGroupPlotStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
     return string.IsNullOrWhiteSpace(styleName)
       ? ObjectId.Null
-      : GetStyleId(civilDoc.Styles.GroupPlotStyles, transaction, styleName);
+      : GetStyleId(civilDoc.Styles.GroupPlotStyles, transaction, styleName, "Group plot style");
   }
 
   public static string? GetFirstStyleName(object? collection, Transaction transaction)
@@ -173,35 +178,24 @@ public static class LookupUtils
     return null;
   }
 
-  private static ObjectId GetStyleId(object collection, Transaction transaction, string? styleName)
+  private static ObjectId GetStyleId(object collection, Transaction transaction, string? styleName, string kind)
   {
-    var fallback = ObjectId.Null;
-
-    foreach (var objectId in EnumerateObjectIds(collection))
+    var ids = EnumerateObjectIds(collection).Where(objectId => !objectId.IsNull).ToList();
+    if (string.IsNullOrWhiteSpace(styleName))
     {
-      if (objectId == ObjectId.Null)
-      {
-        continue;
-      }
-
-      if (fallback == ObjectId.Null)
-      {
-        fallback = objectId;
-      }
-
-      if (string.IsNullOrWhiteSpace(styleName))
-      {
-        continue;
-      }
-
-      var style = transaction.GetObject(objectId, OpenMode.ForRead);
-      if (string.Equals(CivilObjectUtils.GetName(style), styleName, StringComparison.OrdinalIgnoreCase))
-      {
-        return objectId;
-      }
+      return ids.Count > 0 ? ids[0] : ObjectId.Null;
     }
 
-    return fallback;
+    var names = ids
+      .Select(objectId => CivilObjectUtils.GetName(transaction.GetObject(objectId, OpenMode.ForRead)))
+      .ToList();
+    var index = StyleNameMatch.FindIndex(names, styleName);
+    if (index < 0)
+    {
+      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", StyleNameMatch.DescribeMissing(kind, styleName, names));
+    }
+
+    return ids[index];
   }
 
   private static IEnumerable<ObjectId> EnumerateObjectIds(object? collection)

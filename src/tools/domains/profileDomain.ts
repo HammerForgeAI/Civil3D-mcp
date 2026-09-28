@@ -778,7 +778,7 @@ export const PROFILE_DOMAIN_DEFINITION: DomainToolDefinition = {
     {
       toolName: "civil3d_profile_view_create",
       displayName: "Civil 3D Profile View Create",
-      description: "Creates a Civil 3D profile view at the specified insertion point in model space. Optionally applies a style, band set and layer (created if missing); without a style or band set the drawing's first one is used.",
+      description: "Creates a Civil 3D profile view at the specified insertion point in model space. Optionally applies a style, band set and layer (created if missing); without a style or band set the drawing's first one is used, and a style or band set name that does not exist is an error listing the available names.",
       inputShape: {
         alignmentName: z.string(),
         profileViewName: z.string(),

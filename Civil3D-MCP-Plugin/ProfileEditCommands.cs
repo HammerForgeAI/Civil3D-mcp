@@ -314,24 +314,16 @@ public static class ProfileEditCommands
         ? ObjectId.Null
         : LookupUtils.GetLayerId(database, transaction, requestedLayer);
 
-      // Both lookups fall back to the drawing's first style / band set when no
-      // name (or an unknown one) is given, so Create never gets a Null id
-      // unless the drawing has no profile view styles or band sets at all.
+      // With no name, both lookups use the drawing's first style / band set,
+      // so Create never gets a Null id unless the drawing has none at all. A
+      // name that does not exist is CIVIL3D.INVALID_INPUT (listing the
+      // available names) rather than a silent substitution.
       var styleId = LookupUtils.GetProfileViewStyleId(civilDoc, transaction, requestedStyle);
       var bandSetId = LookupUtils.GetProfileViewBandSetId(civilDoc, transaction, requestedBandSet, fallbackToFirst: true);
       var styleName = NameOf(transaction, styleId);
       var bandSetName = NameOf(transaction, bandSetId);
 
       var warnings = new List<string>();
-      if (!string.IsNullOrWhiteSpace(requestedStyle) && !string.Equals(styleName, requestedStyle, StringComparison.OrdinalIgnoreCase))
-      {
-        warnings.Add($"Profile view style '{requestedStyle}' was not found; used '{styleName ?? "(none)"}'.");
-      }
-
-      if (!string.IsNullOrWhiteSpace(requestedBandSet) && !string.Equals(bandSetName, requestedBandSet, StringComparison.OrdinalIgnoreCase))
-      {
-        warnings.Add($"Profile view band set '{requestedBandSet}' was not found; used '{bandSetName ?? "(none)"}'.");
-      }
 
       ObjectId pvId;
       if (!styleId.IsNull && !bandSetId.IsNull)
