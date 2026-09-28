@@ -91,6 +91,7 @@ describe("Tool Catalog", () => {
     const requiredTools = [
       "list_tool_capabilities",
       "civil3d_alignment_add_tangent",
+      "civil3d_alignment_set_style",
       "civil3d_profile_add_pvi",
       "civil3d_corridor_target_mapping_get",
       "civil3d_section_view_create",

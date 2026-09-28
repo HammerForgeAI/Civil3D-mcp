@@ -2,12 +2,12 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 238
+- Catalog entries: 239
 - Domains: 29
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
 |---|---|---|---|---|
-| `civil3d_alignment` | alignment | list, get, station_to_point, point_to_station, create, delete, report, add_tangent, add_spiral, delete_entity, set_station_equation, get_station_offset, offset_create, widen_transition | listAlignments, getAlignment, alignmentStationToPoint, alignmentPointToStation, createAlignment, deleteAlignment, alignmentSampleStations, alignmentAddTangent, alignmentAddSpiral, alignmentDeleteEntity, alignmentSetStationEquation, alignmentGetStationOffset, alignmentOffsetCreate, alignmentWidenTransition | no |
+| `civil3d_alignment` | alignment | list, get, station_to_point, point_to_station, create, delete, report, add_tangent, add_spiral, delete_entity, set_style, set_station_equation, get_station_offset, offset_create, widen_transition | listAlignments, getAlignment, alignmentStationToPoint, alignmentPointToStation, createAlignment, deleteAlignment, alignmentSampleStations, alignmentAddTangent, alignmentAddSpiral, alignmentDeleteEntity, alignmentSetStyle, alignmentSetStationEquation, alignmentGetStationOffset, alignmentOffsetCreate, alignmentWidenTransition | no |
 | `civil3d_alignment_add_spiral` | alignment | — | alignmentAddSpiral | no |
 | `civil3d_alignment_add_tangent` | alignment | — | alignmentAddTangent | no |
 | `civil3d_alignment_delete_entity` | alignment | — | alignmentDeleteEntity | no |
@@ -15,6 +15,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_alignment_offset_create` | alignment | — | alignmentOffsetCreate | no |
 | `civil3d_alignment_report` | alignment | — | getAlignment, alignmentSampleStations | yes |
 | `civil3d_alignment_set_station_equation` | alignment | — | alignmentSetStationEquation | no |
+| `civil3d_alignment_set_style` | alignment | — | alignmentSetStyle | no |
 | `civil3d_alignment_widen_transition` | alignment | — | alignmentWidenTransition | no |
 | `civil3d_intersection` | alignment | list, get | listIntersections, getIntersection | yes |
 | `civil3d_intersection_get` | alignment | — | getIntersection | yes |

@@ -227,6 +227,7 @@ public static class CommandDispatcher
       "alignmentAddCurve" => AlignmentEditCommands.AddCurveAsync(parameters),
       "alignmentAddSpiral" => AlignmentEditCommands.AddSpiralAsync(parameters),
       "alignmentDeleteEntity" => AlignmentEditCommands.DeleteEntityAsync(parameters),
+      "alignmentSetStyle" => AlignmentEditCommands.SetStyleAsync(parameters),
       "alignmentSetStationEquation" => AlignmentEditCommands.SetStationEquationAsync(parameters),
       "alignmentGetStationOffset" => AlignmentEditCommands.GetStationOffsetAsync(parameters),
       "alignmentOffsetCreate" => AlignmentEditCommands.OffsetCreateAsync(parameters),

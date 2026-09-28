@@ -18,6 +18,7 @@ describe("domain manifest migration", () => {
     expect(alignment!.operations).toContain("report");
     expect(alignment!.operations).toContain("add_tangent");
     expect(alignment!.operations).toContain("widen_transition");
+    expect(alignment!.operations).toContain("set_style");
     expect(alignment!.safeForRetry).toBe(false);
   });
 
