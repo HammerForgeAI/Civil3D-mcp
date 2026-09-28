@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { isApprovalRequired } from "../src/tools/approvalPolicy.js";
 import { buildExposureAnnotations } from "../src/tools/domainRuntime.js";
@@ -96,5 +97,19 @@ describe("civil3d_xref domain", () => {
         { name: "UTIL", handle: null, savedPath: null, foundPath: null, pathType: "none", status: "orphaned", rawStatus: "Unresolved", attachment: null, isNested: true, parents: ["BASE"], childCount: 0, instanceCount: null },
       ],
     }).success).toBe(true);
+  });
+});
+
+describe("civil3d_xref command-line runner", () => {
+  it("remembers only unfinished commands, per document, so a later interactive XREF is not cancelled", () => {
+    const runner = readFileSync(new URL("../Civil3D-MCP-Plugin/CommandLineRunner.cs", import.meta.url), "utf8");
+    const run = runner.slice(runner.indexOf("internal static async Task RunAsync"));
+    const command = run.indexOf("await doc.Editor.CommandAsync(tokens)");
+    const staleCheck = run.indexOf("FindActiveCommand(PendingCommandsFor(doc))");
+    expect(staleCheck).toBeGreaterThan(-1);
+    expect(staleCheck).toBeLessThan(command);
+    expect(run.indexOf("PendingInvocations.Remove(invocation)")).toBeGreaterThan(command);
+    expect(runner).not.toContain("HashSet<string> DrivenCommands");
+    expect(runner).toContain("ReferenceEquals(entry.Doc, doc)");
   });
 });

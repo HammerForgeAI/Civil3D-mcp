@@ -14,9 +14,13 @@ internal static class CommandLineRunner
   // stop a batch instead of feeding the next answers into a stale prompt.
   internal const string IncompleteCode = "CIVIL3D.COMMAND_FAILED";
 
-  // Every command this runner has driven. Only the UI thread runs commands,
-  // but the set is locked so a stray caller cannot corrupt it.
-  private static readonly HashSet<string> DrivenCommands = new(StringComparer.OrdinalIgnoreCase);
+  // Invocations this runner started that have not been seen to finish: a
+  // command still at a prompt when its tokens ran out (a cancel was queued) or
+  // one whose CommandAsync failed while the command was still active. A normal
+  // completion is removed at once, so a PLOT/PUBLISH/XREF the user starts later
+  // is never mistaken for a stale request. Only the UI thread runs commands,
+  // but the list is locked so a stray caller cannot corrupt it.
+  private static readonly List<(Document Doc, string Command)> PendingInvocations = new();
 
   internal static async Task RunAsync(Document doc, string commandName, params object[] tokens)
   {
@@ -24,9 +28,9 @@ internal static class CommandLineRunner
     // command is still waiting for more input (the acedCmdC coroutine model),
     // so a stuck command is detected below and a cancel is queued. That cancel
     // only runs after the host work returns, so check here that no command an
-    // earlier request drove is still at a prompt before feeding it this
-    // request's answers.
-    var stale = FindActiveCommand(DrivenCommandsSnapshot());
+    // earlier request left at a prompt in this document is still there before
+    // feeding it this request's answers.
+    var stale = FindActiveCommand(PendingCommandsFor(doc));
     if (stale != null)
     {
       var stalePrompt = Convert.ToString(App.GetSystemVariable("LASTPROMPT"));
@@ -36,18 +40,37 @@ internal static class CommandLineRunner
         $"-{stale} from an earlier request is still waiting at prompt '{stalePrompt}', so -{commandName} was not started. A cancel was queued; retry the request.");
     }
 
-    lock (DrivenCommands)
+    var invocation = (doc, commandName);
+    lock (PendingInvocations)
     {
-      DrivenCommands.Add(commandName);
+      PendingInvocations.Add(invocation);
     }
 
-    await doc.Editor.CommandAsync(tokens);
+    var stillActive = true;
+    try
+    {
+      await doc.Editor.CommandAsync(tokens);
+    }
+    finally
+    {
+      // Forget the invocation once the command is no longer active (normal
+      // completion, or a failure that ended it); keep it only while it may
+      // still be at a prompt.
+      stillActive = FindActiveCommand([commandName]) != null;
+      if (!stillActive)
+      {
+        lock (PendingInvocations)
+        {
+          PendingInvocations.Remove(invocation);
+        }
+      }
+    }
 
     // A token the command did not expect (renamed prompt in a future release,
     // unexpected paper-size dialog, ...) leaves the command waiting for input.
     // Detect that instead of reporting success, record the pending prompt for
     // diagnosis, and queue a cancel so the editor is usable again.
-    if (FindActiveCommand([commandName]) != null)
+    if (stillActive)
     {
       var lastPrompt = Convert.ToString(App.GetSystemVariable("LASTPROMPT"));
       QueueCancel(doc);
@@ -57,12 +80,34 @@ internal static class CommandLineRunner
     }
   }
 
-  private static string[] DrivenCommandsSnapshot()
+  // Commands this runner left unfinished in <paramref name="doc"/>. Entries
+  // whose command is no longer active (the queued cancel ran) are dropped, and
+  // so are entries for documents that have been closed.
+  private static string[] PendingCommandsFor(Document doc)
   {
-    lock (DrivenCommands)
+    var active = ActiveCommandNames();
+    var open = App.DocumentManager.Cast<Document>().ToList();
+    lock (PendingInvocations)
     {
-      return DrivenCommands.ToArray();
+      PendingInvocations.RemoveAll(entry =>
+        !open.Contains(entry.Doc)
+        || (ReferenceEquals(entry.Doc, doc) && !active.Contains(entry.Command, StringComparer.OrdinalIgnoreCase)));
+      return PendingInvocations
+        .Where(entry => ReferenceEquals(entry.Doc, doc))
+        .Select(entry => entry.Command)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
     }
+  }
+
+  private static string[] ActiveCommandNames()
+  {
+    var activeCommands = Convert.ToString(App.GetSystemVariable("CMDNAMES")) ?? string.Empty;
+    return activeCommands
+      .Split('\'')
+      .Select(name => name.TrimStart('-', '_', '.'))
+      .Where(name => name.Length > 0)
+      .ToArray();
   }
 
   private static string? FindActiveCommand(IReadOnlyCollection<string> commandNames)
@@ -72,10 +117,7 @@ internal static class CommandLineRunner
       return null;
     }
 
-    var activeCommands = Convert.ToString(App.GetSystemVariable("CMDNAMES")) ?? string.Empty;
-    return activeCommands
-      .Split('\'')
-      .Select(name => name.TrimStart('-', '_', '.'))
+    return ActiveCommandNames()
       .FirstOrDefault(name => commandNames.Contains(name, StringComparer.OrdinalIgnoreCase));
   }
 

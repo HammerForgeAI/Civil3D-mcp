@@ -884,7 +884,7 @@ Every path passes the plugin's filesystem boundary: it must be absolute, inside 
 
 | Action | Description |
 |------|-------------|
-| `drawing` | Compare the active drawing with another DWG (`otherPath`), which is read as a side database with `Database.ReadDwgFile` and never opened as a document. Returns entities added, removed, and modified, grouped by type and layer and matched by handle, plus Civil 3D object changes matched by kind and name: alignment length, stations, and geometry hash; profile PVIs; surface point count, elevations, and (TIN and grid surfaces) triangle count and 2D/3D area; pipe network counts, pipe inverts, and structure rims and sumps; corridor baselines. |
+| `drawing` | Compare the active drawing with another DWG (`otherPath`), which is read as a side database with `Database.ReadDwgFile` and never opened as a document. Returns entities added, removed, and modified, grouped by type and layer and matched by handle, plus Civil 3D object changes matched by kind and name: alignment length, stations, and geometry hash; profile PVIs; surface point count, elevations, TIN surface triangle count, and 2D/3D area (TIN and grid surfaces); pipe network counts, pipe inverts, and structure rims and sumps; corridor baselines. |
 | `snapshot` | Write a JSON fingerprint of the active drawing to `outputPath` (`.json`, inside the export roots, written atomically, `overwrite` defaults to false). |
 | `compare_snapshot` | Diff the active drawing against a snapshot (`snapshotPath`, `.json`, inside the import roots), for example to see what changed since the last submittal. |
 
