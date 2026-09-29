@@ -339,7 +339,18 @@ public static class ProfileEditCommands
         // Civil 3D 2027 (verified from AeccDbMgd metadata):
         // static ObjectId Create(ObjectId alignmentId, Point3d insertPosition,
         //   string profileViewName, ObjectId profileViewBandSetId, ObjectId profileViewStyleId)
-        pvId = ProfileView.Create(alignment.ObjectId, insertionPoint, profileViewName, bandSetId, styleId);
+        try
+        {
+          pvId = ProfileView.Create(alignment.ObjectId, insertionPoint, profileViewName, bandSetId, styleId);
+        }
+        catch (System.ArgumentException ex)
+        {
+          // Civil 3D rejects the name here (for example "Duplicate ProfileView
+          // name.") before anything is created.
+          throw new JsonRpcDispatchException(
+            "CIVIL3D.INVALID_INPUT",
+            $"Civil 3D could not create the profile view '{profileViewName}': {ex.Message}");
+        }
       }
       else
       {
@@ -364,7 +375,12 @@ public static class ProfileEditCommands
         }
         if (!bandSetId.IsNull)
         {
-          ApplyToProfileView(() => profileView.Bands.ImportBandSetStyle(bandSetId), "profile view band set", bandSetName, requestedBandSet, warnings);
+          if (!ApplyToProfileView(() => profileView.Bands.ImportBandSetStyle(bandSetId), "profile view band set", bandSetName, requestedBandSet, warnings))
+          {
+            // Civil 3D's default band set stayed on the view; don't report the
+            // drawing's band set as applied.
+            bandSetName = null;
+          }
         }
 
         var missing = new List<string>();
@@ -414,12 +430,14 @@ public static class ProfileEditCommands
   // Applies a style or band set to a new profile view. One the caller named
   // must be applied or the call fails (CIVIL3D.INVALID_INPUT, which rolls the
   // create back); the drawing's first one, used when no name was given, is
-  // reported in a warning when it cannot be applied.
-  private static void ApplyToProfileView(Action apply, string kind, string? name, string? requestedName, List<string> warnings)
+  // reported in a warning when it cannot be applied. Returns whether it was
+  // applied.
+  private static bool ApplyToProfileView(Action apply, string kind, string? name, string? requestedName, List<string> warnings)
   {
     try
     {
       apply();
+      return true;
     }
     catch (System.Exception ex) when (ex is not JsonRpcDispatchException)
     {
@@ -431,6 +449,7 @@ public static class ProfileEditCommands
       }
 
       warnings.Add($"The drawing's {kind} '{name}' could not be applied; Civil 3D's default was used: {ex.Message}");
+      return false;
     }
   }
 

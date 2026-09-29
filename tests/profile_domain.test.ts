@@ -92,7 +92,10 @@ describe("civil3d_profile view_create schema", () => {
 });
 
 describe("civil3d_profile plugin guards", () => {
-  const source = readFileSync(new URL("../Civil3D-MCP-Plugin/ProfileEditCommands.cs", import.meta.url), "utf8");
+  // Whitespace is collapsed so the guards pin tokens, not formatting: a
+  // reindent or a wrapped expression in the C# file does not break them.
+  const normalize = (text: string) => text.replace(/\s+/g, " ");
+  const source = normalize(readFileSync(new URL("../Civil3D-MCP-Plugin/ProfileEditCommands.cs", import.meta.url), "utf8"));
   const section = (start: string, end: string) => {
     const from = source.indexOf(start);
     expect(from).toBeGreaterThan(0);
@@ -103,7 +106,7 @@ describe("civil3d_profile plugin guards", () => {
 
   it("does not report a passing K check when the profile has no vertical curves", () => {
     const check = section("public static Task<object?> CheckKValuesAsync", "public static Task<object?> ProfileViewCreateAsync");
-    expect(check).toContain("var allPass = results.Count > 0 && failing == 0;");
+    expect(check).toMatch(/allPass = results\.Count > 0 && failing == 0/);
   });
 
   it("applies the style or band set the drawing has instead of dropping it, and fails a failed rename", () => {
@@ -112,7 +115,18 @@ describe("civil3d_profile plugin guards", () => {
     expect(create).toContain("ApplyToProfileView(() => profileView.Bands.ImportBandSetStyle(bandSetId)");
     expect(create).not.toContain("could not be renamed");
     expect(create).toContain("Civil 3D could not name the profile view");
-    const apply = section("private static void ApplyToProfileView", "private static string? NameOf");
+    const apply = section("private static bool ApplyToProfileView", "private static string? NameOf");
     expect(apply).toContain('"CIVIL3D.INVALID_INPUT"');
+  });
+
+  it("does not report a band set that failed to import as applied", () => {
+    const create = section("public static Task<object?> ProfileViewCreateAsync", "private static string? NameOf");
+    expect(create).toMatch(/if \(!ApplyToProfileView\(\(\) => profileView\.Bands\.ImportBandSetStyle\(bandSetId\)[^}]*bandSetName = null;/);
+  });
+
+  it("reports a name Civil 3D rejects in ProfileView.Create as invalid input", () => {
+    const create = section("public static Task<object?> ProfileViewCreateAsync", "private static string? NameOf");
+    expect(create).toMatch(/catch \(System\.ArgumentException ex\) \{[^}]*"CIVIL3D\.INVALID_INPUT"/);
+    expect(create).toContain("Civil 3D could not create the profile view");
   });
 });
