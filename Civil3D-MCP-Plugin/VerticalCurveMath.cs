@@ -164,11 +164,11 @@ public static class VerticalCurveMath
   /// <summary>Algebraic grade difference A in percent from decimal grades.</summary>
   public static double GradeDifferencePercent(double gradeIn, double gradeOut) => 100.0 * Math.Abs(gradeOut - gradeIn);
 
-  /// <summary>K = L / A (A in percent). Null when the grades are equal (no curve needed, K is infinite).</summary>
+  /// <summary>K = L / A (A in percent). Null only when the grades are equal (no curve needed, K is infinite); a very flat curve still gets its finite K.</summary>
   public static double? ComputeK(double curveLength, double gradeIn, double gradeOut)
   {
     var a = GradeDifferencePercent(gradeIn, gradeOut);
-    return a > 1e-9 ? curveLength / a : null;
+    return a > 0 ? curveLength / a : null;
   }
 
   /// <summary>Sag when the grade increases through the curve (g2 &gt; g1), crest otherwise.</summary>

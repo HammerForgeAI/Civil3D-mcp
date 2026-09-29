@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const sendCommand = vi.fn();
@@ -87,5 +88,31 @@ describe("civil3d_profile view_create schema", () => {
     expect(canonical).toBeDefined();
     expect(canonical!.inputShape).toHaveProperty("layer");
     expect(canonical!.inputShape).toHaveProperty("speedUnits");
+  });
+});
+
+describe("civil3d_profile plugin guards", () => {
+  const source = readFileSync(new URL("../Civil3D-MCP-Plugin/ProfileEditCommands.cs", import.meta.url), "utf8");
+  const section = (start: string, end: string) => {
+    const from = source.indexOf(start);
+    expect(from).toBeGreaterThan(0);
+    const to = source.indexOf(end, from);
+    expect(to).toBeGreaterThan(from);
+    return source.slice(from, to);
+  };
+
+  it("does not report a passing K check when the profile has no vertical curves", () => {
+    const check = section("public static Task<object?> CheckKValuesAsync", "public static Task<object?> ProfileViewCreateAsync");
+    expect(check).toContain("var allPass = results.Count > 0 && failing == 0;");
+  });
+
+  it("applies the style or band set the drawing has instead of dropping it, and fails a failed rename", () => {
+    const create = section("public static Task<object?> ProfileViewCreateAsync", "private static string? NameOf");
+    expect(create).toContain("ApplyToProfileView(() => profileView.StyleId = styleId");
+    expect(create).toContain("ApplyToProfileView(() => profileView.Bands.ImportBandSetStyle(bandSetId)");
+    expect(create).not.toContain("could not be renamed");
+    expect(create).toContain("Civil 3D could not name the profile view");
+    const apply = section("private static void ApplyToProfileView", "private static string? NameOf");
+    expect(apply).toContain('"CIVIL3D.INVALID_INPUT"');
   });
 });

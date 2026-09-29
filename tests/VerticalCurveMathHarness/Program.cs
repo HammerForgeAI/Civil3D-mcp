@@ -13,6 +13,7 @@ Near(V.GradeDifferencePercent(-0.014, 0.014), 2.8, "A in percent");
 Near(V.ComputeK(280, -0.014, 0.014)!.Value, 100, "K = L / A(%)");
 Near(V.ComputeK(280, 0.014, -0.014)!.Value, 100, "K uses |A|");
 Assert(V.ComputeK(280, 0.02, 0.02) == null, "equal grades have no finite K");
+Near(V.ComputeK(280, 0, 1e-12)!.Value, 280 / (100 * 1e-12), "a very flat but valid curve keeps its finite K");
 
 // --- Sag / crest by sign of g2 - g1 -----------------------------------------
 Assert(V.IsSag(-0.014, 0.014), "grade increasing is a sag");

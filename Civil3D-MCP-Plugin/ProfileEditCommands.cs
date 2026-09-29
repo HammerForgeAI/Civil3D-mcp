@@ -261,7 +261,12 @@ public static class ProfileEditCommands
       }
 
       var failing = results.Count(r => !(bool)(r["passes"] ?? false));
-      var allPass = failing == 0;
+      // No curves means nothing was checked, which is not a pass.
+      var allPass = results.Count > 0 && failing == 0;
+      if (results.Count == 0)
+      {
+        warnings.Add($"Profile '{profile.Name}' has no vertical curves, so no K values were checked.");
+      }
       return new Dictionary<string, object?>
       {
         ["alignmentName"] = alignment.Name,
@@ -285,7 +290,9 @@ public static class ProfileEditCommands
         ["curves"] = results,
         ["allPass"] = allPass,
         ["warnings"] = warnings,
-        ["summary"] = allPass
+        ["summary"] = results.Count == 0
+          ? $"Profile '{profile.Name}' has no vertical curves; no K values were checked."
+          : allPass
           ? $"All {results.Count} vertical curve(s) meet the minimum K for {designSpeed} {speedUnits} (table row {lookup.Row.Speed} {speedUnits}: crest {lookup.Row.KCrest}, sag {lookup.Row.KSag} {lookup.KUnits})."
           : $"{failing} of {results.Count} vertical curve(s) are below the minimum K for {designSpeed} {speedUnits} (table row {lookup.Row.Speed} {speedUnits}: crest {lookup.Row.KCrest}, sag {lookup.Row.KSag} {lookup.KUnits}).",
       };
@@ -326,7 +333,8 @@ public static class ProfileEditCommands
       var warnings = new List<string>();
 
       ObjectId pvId;
-      if (!styleId.IsNull && !bandSetId.IsNull)
+      var createdWithBoth = !styleId.IsNull && !bandSetId.IsNull;
+      if (createdWithBoth)
       {
         // Civil 3D 2027 (verified from AeccDbMgd metadata):
         // static ObjectId Create(ObjectId alignmentId, Point3d insertPosition,
@@ -335,9 +343,11 @@ public static class ProfileEditCommands
       }
       else
       {
-        // No style or band set in the drawing: let Civil 3D use its defaults, then name it.
+        // The drawing lacks a style or a band set. Every 2027 Create overload
+        // that takes a style also takes a band set (AeccDbMgd metadata), so the
+        // view is created with Civil 3D's defaults and whichever of the two the
+        // drawing does have is applied to it below.
         pvId = ProfileView.Create(alignment.ObjectId, insertionPoint);
-        warnings.Add("The drawing has no profile view style or band set; Civil 3D defaults were used.");
       }
 
       if (pvId.IsNull)
@@ -346,6 +356,23 @@ public static class ProfileEditCommands
       }
 
       var profileView = CivilObjectUtils.GetRequiredObject<ProfileView>(transaction, pvId, OpenMode.ForWrite);
+      if (!createdWithBoth)
+      {
+        if (!styleId.IsNull)
+        {
+          ApplyToProfileView(() => profileView.StyleId = styleId, "profile view style", styleName, requestedStyle, warnings);
+        }
+        if (!bandSetId.IsNull)
+        {
+          ApplyToProfileView(() => profileView.Bands.ImportBandSetStyle(bandSetId), "profile view band set", bandSetName, requestedBandSet, warnings);
+        }
+
+        var missing = new List<string>();
+        if (styleId.IsNull) missing.Add("profile view style");
+        if (bandSetId.IsNull) missing.Add("profile view band set");
+        warnings.Add($"The drawing has no {string.Join(" and no ", missing)}; Civil 3D's default {string.Join(" and ", missing)} {(missing.Count == 1 ? "was" : "were")} used.");
+      }
+
       if (!string.Equals(profileView.Name, profileViewName, StringComparison.Ordinal))
       {
         try
@@ -354,7 +381,11 @@ public static class ProfileEditCommands
         }
         catch (System.Exception ex)
         {
-          warnings.Add($"Civil 3D named the profile view '{profileView.Name}' and it could not be renamed to '{profileViewName}': {ex.Message}");
+          // A view under another name is not what was asked for; failing here
+          // rolls the whole create back.
+          throw new JsonRpcDispatchException(
+            "CIVIL3D.INVALID_INPUT",
+            $"Civil 3D could not name the profile view '{profileViewName}': {ex.Message}");
         }
       }
 
@@ -378,6 +409,29 @@ public static class ProfileEditCommands
         ["success"] = true,
       };
     });
+  }
+
+  // Applies a style or band set to a new profile view. One the caller named
+  // must be applied or the call fails (CIVIL3D.INVALID_INPUT, which rolls the
+  // create back); the drawing's first one, used when no name was given, is
+  // reported in a warning when it cannot be applied.
+  private static void ApplyToProfileView(Action apply, string kind, string? name, string? requestedName, List<string> warnings)
+  {
+    try
+    {
+      apply();
+    }
+    catch (System.Exception ex) when (ex is not JsonRpcDispatchException)
+    {
+      if (!string.IsNullOrWhiteSpace(requestedName))
+      {
+        throw new JsonRpcDispatchException(
+          "CIVIL3D.INVALID_INPUT",
+          $"The requested {kind} '{name ?? requestedName}' could not be applied to the new profile view: {ex.Message}");
+      }
+
+      warnings.Add($"The drawing's {kind} '{name}' could not be applied; Civil 3D's default was used: {ex.Message}");
+    }
   }
 
   private static string? NameOf(Transaction transaction, ObjectId objectId)

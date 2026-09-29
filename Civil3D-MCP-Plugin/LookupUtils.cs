@@ -13,7 +13,8 @@ public static class LookupUtils
   /// to fall back silently to the current layer, which put e.g. a profile
   /// requested on C-ROAD-DES onto layer 0). Every caller runs inside a
   /// CivilExecution.WriteAsync transaction, so the new layer is committed with
-  /// the object that uses it. Read-only paths must use <see cref="FindLayerId"/>.
+  /// the object that uses it. Do not call it from a read-only path: it would
+  /// add a layer there.
   /// </summary>
   public static ObjectId GetLayerId(Database database, Transaction transaction, string? layerName)
   {
@@ -43,18 +44,6 @@ public static class LookupUtils
     var layerId = layerTable.Add(record);
     transaction.AddNewlyCreatedDBObject(record, true);
     return layerId;
-  }
-
-  /// <summary>Non-creating layer lookup for read-only paths: the layer's id, or null when it does not exist.</summary>
-  public static ObjectId? FindLayerId(Database database, Transaction transaction, string? layerName)
-  {
-    if (string.IsNullOrWhiteSpace(layerName))
-    {
-      return null;
-    }
-
-    var layerTable = CivilObjectUtils.GetRequiredObject<LayerTable>(transaction, database.LayerTableId, OpenMode.ForRead);
-    return layerTable.Has(layerName.Trim()) ? layerTable[layerName.Trim()] : null;
   }
 
   public static ObjectId GetSiteId(CivilDocument civilDoc, Transaction transaction, string? siteName)

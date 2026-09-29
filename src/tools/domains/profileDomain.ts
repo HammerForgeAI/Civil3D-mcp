@@ -24,8 +24,10 @@ const ProfileListResponseSchema = z.object({
 
 const ProfileEntitySchema = z.object({
   index: z.number(),
-  // "parabola" is what plugins before the ParabolaSymmetric mapping fix
-  // reported for symmetric curves; kept so an older installed plugin still parses.
+  // "parabola" was in this enum before the ParabolaSymmetric mapping fix and
+  // stays accepted for schema back-compat. Pre-fix plugins never sent it for a
+  // real curve: their substring match found "asymmetric" inside
+  // "parabolasymmetric", so symmetric curves came back as "asymmetric_parabola".
   type: z.enum(["tangent", "circular_curve", "symmetric_parabola", "asymmetric_parabola", "parabola"]),
   startStation: z.number(),
   endStation: z.number(),
