@@ -80,7 +80,7 @@ describe("fase1 audit", () => {
     expect(failed).toEqual(expect.arrayContaining([
       "layouts",
       "PROP text in Model",
-      "PROP/PROPOSED wording in paper space",
+      "PROP/PROPOSED in paper space",
       "pressure networks",
       "profile views",
       "gravity pipe networks",

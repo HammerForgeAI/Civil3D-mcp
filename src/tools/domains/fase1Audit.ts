@@ -78,7 +78,7 @@ export async function runFase1Audit(send: PluginSend, options: Fase1AuditOptions
       add("OK", "PROP text in Model", "none");
     }
     if (paper.length) {
-      add("FAIL", "PROP/PROPOSED wording in paper space", `${paper.length} note MText(s) (${paper.map((e) => `${e.layout}:${e.handle}`).join(", ")}) -> strip with fase1-strip-prop-notes.mjs + acad_update_text_content; erase off-sheet template notes`);
+      add("FAIL", "PROP/PROPOSED in paper space", `${paper.length} note MText(s) (${paper.map((e) => `${e.layout}:${e.handle}`).join(", ")}) -> strip with fase1-strip-prop-notes.mjs + acad_update_text_content; erase off-sheet template notes`);
     } else {
       add("OK", "PROP/PROPOSED in paper space", "none");
     }
