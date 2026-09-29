@@ -106,6 +106,7 @@ const Fase1BuildTitleReplacementSchema = z.object({
   find: z.string(),
   replace: z.string(),
 });
+const Fase1BuildSheetSchema = z.object({ minX: z.number(), minY: z.number(), maxX: z.number(), maxY: z.number() });
 
 const canonicalWorkflowInputShape = {
   action: z.enum([
@@ -136,6 +137,9 @@ const canonicalWorkflowInputShape = {
   entityLayout: z.string().optional(),
   twists: z.array(Fase1BuildTwistSchema).optional(),
   titleBlock: z.array(Fase1BuildTitleReplacementSchema).optional(),
+  expectedDocument: z.string().optional(),
+  stripPropNotes: z.boolean().optional(),
+  sheet: Fase1BuildSheetSchema.optional(),
   save: z.boolean().optional(),
   corridorName: z.string().optional(),
   outputPath: z.string().optional(),
@@ -290,6 +294,9 @@ const Fase1BuildArgsSchema = z.object({
   entityLayout: z.string().optional(),
   twists: z.array(Fase1BuildTwistSchema).optional(),
   titleBlock: z.array(Fase1BuildTitleReplacementSchema).optional(),
+  expectedDocument: z.string().optional(),
+  stripPropNotes: z.boolean().optional(),
+  sheet: Fase1BuildSheetSchema.optional(),
   save: z.boolean().optional(),
 });
 
@@ -581,6 +588,7 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
       pluginMethods: [
         "newDrawing",
         "saveDrawing",
+        "listOpenDocuments",
         "attachXref",
         "createAlignment",
         "insertBlockReference",
@@ -588,6 +596,10 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
         "setViewportTwist",
         "listTextEntities",
         "updateTextContent",
+        "eraseEntities",
+        "listPolylineEntities",
+        "listShapeEntities",
+        "moveEntities",
       ],
       execute: async (args) => await withApplicationConnection(async (appClient) => {
         const buildSteps = await runFase1Build((method, params) => appClient.sendCommand(method, params), {
@@ -603,6 +615,9 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
           entityLayout: args.entityLayout as string | undefined,
           twists: args.twists as Parameters<typeof runFase1Build>[1]["twists"],
           titleBlock: args.titleBlock as Parameters<typeof runFase1Build>[1]["titleBlock"],
+          expectedDocument: args.expectedDocument as string | undefined,
+          stripPropNotes: args.stripPropNotes as boolean | undefined,
+          sheet: args.sheet as Parameters<typeof runFase1Build>[1]["sheet"],
           save: args.save as boolean | undefined,
         });
         const totals = summarizeFase1Build(buildSteps);
@@ -1113,7 +1128,7 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
     {
       toolName: "civil3d_workflow_fase1_build",
       displayName: "Civil 3D Workflow Fase 1 Build",
-      description: "Assembles a Fase 1 C-300 sheet (existing conditions only) from a pre-computed spec in ONE call: opens/saves the template, attaches xrefs (Overlay), creates the frontage alignment (with style/labelSet), imports the _cl block definition once and places the rest of the entity batch, twists the C-300 viewport and Model tab, edits title-block text by substring, and saves. Build the spec with scripts/c300-build-spec.mjs (skill civil3d-mcp-workflows) — this tool draws it, it does not derive it from a topo dump itself. Stops at the first failing step (later steps report 'skipped'); nothing before the failure is undone.",
+      description: "Assembles a Fase 1 C-300 sheet (existing conditions only) from a pre-computed spec in ONE call: opens/saves the template, refuses to write unless the ACTIVE document matches expectedDocument (or saveAs), attaches xrefs (Overlay), creates the frontage alignment (with style/labelSet), imports the _cl block definition once and places the rest of the entity batch, twists the C-300 viewport and Model tab, edits title-block text by substring, removes PROP/PROPOSED from the sheet notes (rewrites the on-sheet MD-WASD notes, erases off-sheet PROP template notes; stripPropNotes:false to skip), re-checks the document and saves. Build the payload with scripts/c300-build-spec.mjs + scripts/fase1-build-payload.mjs (skill civil3d-mcp-workflows) — this tool draws it, it does not derive it from a topo dump itself. Called with only expectedDocument it just cleans the PROP notes of that drawing and saves. Stops at the first failing step (later steps report 'skipped'); nothing before the failure is undone.",
       inputShape: {
         templatePath: z.string().optional(),
         saveAs: z.string().optional(),

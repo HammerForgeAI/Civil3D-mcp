@@ -463,6 +463,9 @@ public static class AcadCommands
             continue;
           }
 
+          // Bounding box of what is actually drawn (for an MText: its real wrapped height, not the column box).
+          // Lets callers measure how far a shortened note moved (fase1_build shifts the glyphs left under it).
+          AddTextExtents(entry, (Entity)dbObject);
           results.Add(entry);
         }
       }
@@ -767,6 +770,16 @@ public static class AcadCommands
     }
 
     return entry;
+  }
+
+  private static void AddTextExtents(Dictionary<string, object?> entry, Entity entity)
+  {
+    Extents3d? bounds = null;
+    try { bounds = entity.GeometricExtents; } catch { bounds = null; }
+    entry["minX"] = bounds?.MinPoint.X;
+    entry["minY"] = bounds?.MinPoint.Y;
+    entry["maxX"] = bounds?.MaxPoint.X;
+    entry["maxY"] = bounds?.MaxPoint.Y;
   }
 
   private static Dictionary<string, object?> BuildTextEntry(DBText dbText, string layoutName, bool isModelSpace) => new()

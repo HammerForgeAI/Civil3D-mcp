@@ -1,36 +1,80 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { runFase1Build, summarizeFase1Build, type PluginSend } from "../src/tools/domains/fase1Build.js";
+import { documentMatches, runFase1Build, summarizeFase1Build, type PluginSend } from "../src/tools/domains/fase1Build.js";
 
 type Call = { method: string; params: Record<string, unknown> };
 
-function fakePlugin(responses: Record<string, unknown | Error>, log: Call[]): PluginSend {
+const CF80 = readFileSync(new URL("./fixtures/md-wasd-notes-cf80.txt", import.meta.url), "utf8");
+const TARGET = "C:\\Proj\\VILLA ONE\\PROJECT FASE 1.dwg";
+const GUIDE = "C:\\Proj\\VILLA ONE\\C-300_GUIA_COMO_DEBE_QUEDAR.dwg";
+
+const openDocs = (activePath: string) => ({
+  documents: [
+    { name: GUIDE, filePath: GUIDE, isActive: activePath === GUIDE },
+    { name: activePath, filePath: activePath, isActive: activePath !== GUIDE },
+  ],
+});
+
+type Responder = unknown | Error | ((params: Record<string, unknown>) => unknown);
+
+function fakePlugin(responses: Record<string, Responder>, log: Call[]): PluginSend {
   return async (method, params) => {
     log.push({ method, params });
     const value = responses[method];
     if (value instanceof Error) throw value;
     if (value === undefined) throw new Error(`unexpected plugin call ${method}`);
-    return value;
+    return typeof value === "function" ? (value as (p: Record<string, unknown>) => unknown)(params) : value;
   };
 }
 
-const happyResponses: Record<string, unknown> = {
-  newDrawing: { name: "FASE 1.dwg" },
+const titleText = { handle: "T1", text: "C-300  WATER AND SEWER PLAN  1\"=20'", layout: "C-300", space: "paper", x: 30, y: 6 };
+
+// listTextEntities answers the title-block lookup (contains != "PROP") and the PROP-notes scan (contains == "PROP").
+const listText = (propNotes: unknown[] = []) => (params: Record<string, unknown>) =>
+  params.contains === "PROP" ? { entities: propNotes } : { entities: [titleText].filter((e) => e.text.includes(String(params.contains))) };
+
+const happyResponses: Record<string, Responder> = {
+  newDrawing: { name: "Drawing2.dwg" },
   saveDrawing: { saved: true },
+  listOpenDocuments: openDocs(TARGET),
   attachXref: { xrefName: "X-TOPO" },
   createAlignment: { name: "SW 118TH AVE" },
   insertBlockReference: { handle: "AAA1" },
   createEntities: { createdCount: 2 },
-  setViewportTwist: { twistDegrees: 268.49 },
-  listTextEntities: { entities: [{ handle: "T1", text: "C-300  WATER AND SEWER PLAN  1\"=20'" }] },
+  setViewportTwist: {
+    before: { handle: "CDF1", twistDegrees: 359.11 },
+    after: { handle: "CDF1", twistDegrees: 268.4891, modelCenterX: 859789.1908, modelCenterY: 444700.6855, annotationScale: "1\" = 20'" },
+  },
+  listTextEntities: listText(),
   updateTextContent: { handle: "T1" },
+  eraseEntities: { erased: 3 },
 };
+
+// A Civil 3D session where newDrawing opens "Drawing2.dwg" (active, still named after the template) and "save as" gives it TARGET.
+function templateSession(responses: Record<string, Responder>): Record<string, Responder> {
+  let savedAs = false;
+  return {
+    ...responses,
+    newDrawing: { drawingName: "Drawing2.dwg", filePath: "C:\\Proj\\_template.dwg" },
+    saveDrawing: (p: Record<string, unknown>) => {
+      if (p.saveAs) savedAs = true;
+      return { saved: true };
+    },
+    listOpenDocuments: () =>
+      savedAs
+        ? openDocs(TARGET)
+        : { documents: [{ name: GUIDE, filePath: GUIDE, isActive: false }, { name: "Drawing2.dwg", filePath: "C:\\Proj\\_template.dwg", isActive: true }] },
+  };
+}
+
+const mutating = ["attachXref", "createAlignment", "insertBlockReference", "createEntities", "setViewportTwist", "updateTextContent", "eraseEntities"];
 
 describe("fase1 build", () => {
   it("runs every step in order and reports OK for a clean pipeline", async () => {
     const log: Call[] = [];
-    const steps = await runFase1Build(fakePlugin(happyResponses, log), {
+    const steps = await runFase1Build(fakePlugin(templateSession(happyResponses), log), {
       templatePath: "C-300 template.dwg",
-      saveAs: "PROJECT FASE 1.dwg",
+      saveAs: TARGET,
       overwrite: true,
       xrefs: [{ filePath: "X-TOPO.dwg" }, { filePath: "X-UTIL.dwg" }],
       alignment: { name: "SW 118TH AVE", points: [{ x: 0, y: 0 }, { x: 440, y: 0 }], style: "BCC - ALIGNMENT", labelSet: "Major and Minor only" },
@@ -43,25 +87,82 @@ describe("fase1 build", () => {
     expect(steps.every((s) => s.status === "OK")).toBe(true);
     expect(log.map((c) => c.method)).toEqual([
       "newDrawing",
+      "listOpenDocuments", // the new drawing is the active one
       "saveDrawing", // save as
+      "listOpenDocuments", // guard: saveAs is the expected document
       "attachXref",
       "attachXref",
       "createAlignment",
       "createEntities",
       "setViewportTwist",
-      "listTextEntities",
+      "listTextEntities", // title block
       "updateTextContent",
+      "listTextEntities", // PROP notes scan (none)
+      "listOpenDocuments", // guard again before saving
       "saveDrawing", // final save
     ]);
+  });
+
+  it("refuses to write when the active document is not the expected one (e.g. the guide is focused)", async () => {
+    const log: Call[] = [];
+    const steps = await runFase1Build(fakePlugin({ ...happyResponses, listOpenDocuments: openDocs(GUIDE) }, log), {
+      expectedDocument: "PROJECT FASE 1.dwg",
+      xrefs: [{ filePath: "X-TOPO.dwg" }],
+      entities: [{ kind: "mtext", text: "x" }],
+    });
+
+    const guard = steps.find((s) => s.name === "check active document")!;
+    expect(guard.status).toBe("FAIL");
+    expect(guard.detail).toContain("C-300_GUIA_COMO_DEBE_QUEDAR.dwg");
+    expect(log.some((c) => mutating.includes(c.method) || c.method === "saveDrawing")).toBe(false);
+    expect(steps.find((s) => s.name === "save")!.status).toBe("SKIPPED");
+  });
+
+  it("does not 'save as' when the new drawing did not become the active document", async () => {
+    const log: Call[] = [];
+    const session = templateSession(happyResponses);
+    const steps = await runFase1Build(fakePlugin({ ...session, listOpenDocuments: openDocs(GUIDE) }, log), {
+      templatePath: "C-300 template.dwg",
+      saveAs: TARGET,
+      entities: [{ kind: "mtext", text: "x" }],
+    });
+    expect(steps.find((s) => s.name === "check new drawing is active")!.status).toBe("FAIL");
+    expect(log.some((c) => c.method === "saveDrawing" || mutating.includes(c.method))).toBe(false);
+  });
+
+  it("refuses to write when neither expectedDocument nor saveAs says which drawing is the target", async () => {
+    const log: Call[] = [];
+    const steps = await runFase1Build(fakePlugin(happyResponses, log), { entities: [{ kind: "mtext", text: "x" }] });
+    expect(steps[0]).toMatchObject({ name: "check active document", status: "FAIL" });
+    expect(log).toHaveLength(0);
+  });
+
+  it("matches a bare file name against the file name only, never against a folder that happens to contain it", () => {
+    expect(documentMatches({ filePath: TARGET }, "PROJECT FASE 1.dwg")).toBe(true);
+    expect(documentMatches({ filePath: TARGET }, "project fase 1")).toBe(true);
+    expect(documentMatches({ filePath: GUIDE }, "VILLA ONE")).toBe(false); // folder name, not the file
+    expect(documentMatches({ filePath: TARGET }, "C:/Proj/VILLA ONE/PROJECT FASE 1.dwg")).toBe(true);
+    expect(documentMatches({ filePath: GUIDE }, TARGET)).toBe(false);
+  });
+
+  it("checks the document again before saving and does not save a drawing that lost focus mid-build", async () => {
+    const log: Call[] = [];
+    let calls = 0;
+    const steps = await runFase1Build(
+      fakePlugin({ ...happyResponses, listOpenDocuments: () => (++calls === 1 ? openDocs(TARGET) : openDocs(GUIDE)) }, log),
+      { expectedDocument: "PROJECT FASE 1.dwg", entities: [{ kind: "mtext", text: "x" }] },
+    );
+    expect(steps.find((s) => s.name === "check active document before save")!.status).toBe("FAIL");
+    expect(log.filter((c) => c.method === "saveDrawing")).toHaveLength(0);
   });
 
   it("stops at the first failing step and marks the rest skipped, without undoing what already ran", async () => {
     const log: Call[] = [];
     const steps = await runFase1Build(
-      fakePlugin({ ...happyResponses, attachXref: new Error("file not found") }, log),
+      fakePlugin(templateSession({ ...happyResponses, attachXref: new Error("file not found") }), log),
       {
         templatePath: "C-300 template.dwg",
-        saveAs: "PROJECT FASE 1.dwg",
+        saveAs: TARGET,
         xrefs: [{ filePath: "X-TOPO.dwg" }],
         alignment: { name: "SW 118TH AVE", points: [{ x: 0, y: 0 }, { x: 440, y: 0 }] },
         entities: [{ kind: "mtext", text: "SW 118TH AVENUE" }],
@@ -73,6 +174,7 @@ describe("fase1 build", () => {
     expect(steps.find((s) => s.name.startsWith("xref"))!.status).toBe("FAIL");
     expect(steps.find((s) => s.name.startsWith("alignment"))!.status).toBe("SKIPPED");
     expect(steps.find((s) => s.name.includes("entities"))!.status).toBe("SKIPPED");
+    expect(steps.find((s) => s.name.startsWith("Fase 1 notes"))!.status).toBe("SKIPPED");
     expect(steps.find((s) => s.name === "save")!.status).toBe("SKIPPED");
     // newDrawing and the initial save DID run and are not retried or reversed
     expect(log.filter((c) => c.method === "newDrawing")).toHaveLength(1);
@@ -81,6 +183,7 @@ describe("fase1 build", () => {
   it("imports the block definition for the first matching block entity and excludes it from the batch", async () => {
     const log: Call[] = [];
     await runFase1Build(fakePlugin(happyResponses, log), {
+      expectedDocument: "PROJECT FASE 1.dwg",
       clImport: { blockName: "_cl", sourceFilePath: "X-TOPO.dwg" },
       entities: [
         { kind: "block", blockName: "_cl", x: 10, y: 20, rotation: 0, scale: 30, layer: "TEXT" },
@@ -103,6 +206,7 @@ describe("fase1 build", () => {
   it("skips the block import when no matching block entity is in the batch, and still builds the rest", async () => {
     const log: Call[] = [];
     const steps = await runFase1Build(fakePlugin(happyResponses, log), {
+      expectedDocument: "PROJECT FASE 1.dwg",
       clImport: { blockName: "_cl", sourceFilePath: "X-TOPO.dwg" },
       entities: [{ kind: "mtext", text: "SW 118TH AVENUE" }],
       save: false,
@@ -113,9 +217,10 @@ describe("fase1 build", () => {
     expect(log.some((c) => c.method === "createEntities")).toBe(true);
   });
 
-  it("edits only the matched substring of the title-block text and fails clearly when the substring is not found", async () => {
+  it("edits only the matched substring of the title-block text on THAT layout and fails clearly otherwise", async () => {
     const log: Call[] = [];
     const ok = await runFase1Build(fakePlugin(happyResponses, log), {
+      expectedDocument: "PROJECT FASE 1.dwg",
       titleBlock: [{ layout: "C-300", contains: "WATER AND SEWER", find: "1\"=20'", replace: "AS SHOWN" }],
       save: false,
     });
@@ -123,17 +228,142 @@ describe("fase1 build", () => {
     const update = log.find((c) => c.method === "updateTextContent")!;
     expect(update.params.text).toBe("C-300  WATER AND SEWER PLAN  AS SHOWN");
 
-    const log2: Call[] = [];
-    const fails = await runFase1Build(fakePlugin(happyResponses, log2), {
+    const notFound = await runFase1Build(fakePlugin(happyResponses, []), {
+      expectedDocument: "PROJECT FASE 1.dwg",
       titleBlock: [{ layout: "C-300", contains: "WATER AND SEWER", find: "NOT PRESENT", replace: "X" }],
       save: false,
     });
-    expect(fails.find((s) => s.name.includes("title block"))!.status).toBe("FAIL");
+    expect(notFound.find((s) => s.name.includes("title block"))!.status).toBe("FAIL");
+
+    // the text lives on C-300: asking for C-301 must not edit it (listTextEntities itself has no layout filter)
+    const log3: Call[] = [];
+    const otherLayout = await runFase1Build(fakePlugin(happyResponses, log3), {
+      expectedDocument: "PROJECT FASE 1.dwg",
+      titleBlock: [{ layout: "C-301", contains: "WATER AND SEWER", find: "1\"=20'", replace: "AS SHOWN" }],
+      save: false,
+    });
+    expect(otherLayout.find((s) => s.name.includes("title block"))!.status).toBe("FAIL");
+    expect(log3.some((c) => c.method === "updateTextContent")).toBe(false);
+
+    // two texts on the layout match the fragment -> ambiguous, nothing edited
+    const log4: Call[] = [];
+    const twin = { ...titleText, handle: "T2" };
+    const ambiguous = await runFase1Build(
+      fakePlugin({ ...happyResponses, listTextEntities: (p: Record<string, unknown>) => (p.contains === "PROP" ? { entities: [] } : { entities: [titleText, twin] }) }, log4),
+      { expectedDocument: "PROJECT FASE 1.dwg", titleBlock: [{ layout: "C-300", contains: "WATER", find: "1\"=20'", replace: "AS SHOWN" }], save: false },
+    );
+    expect(ambiguous.find((s) => s.name.includes("title block"))!.detail).toContain("T1, T2");
+    expect(log4.some((c) => c.method === "updateTextContent")).toBe(false);
+  });
+
+  it("removes PROP/PROPOSED from the sheet: rewrites the on-sheet MD-WASD notes and erases the off-sheet template notes", async () => {
+    const log: Call[] = [];
+    const propNotes = [
+      { handle: "CF80", text: CF80, layout: "C-300", space: "paper", x: 25.66, y: 17.923 },
+      { handle: "CF57", text: "...FOR THE SCHEDULING OF LICENSED OPERATOR TO BE PRESENT FOR PROPOSED ACTIVITY.}", layout: "C-300", space: "paper", x: 48.315, y: 16.292 },
+      { handle: "CF6E", text: "{\\LFOR ALL PROJECTS WHERE REMOVAL OF UTILITY LINES IS PROPOSED}", layout: "C-300", space: "paper", x: 63.855, y: 16.29 },
+      { handle: "SUBJ", text: "SUBJECT PROPERTY", layout: "C-300", space: "paper", x: 10, y: 10 }, // not PROP as a word
+    ];
+    const steps = await runFase1Build(fakePlugin({ ...happyResponses, listTextEntities: listText(propNotes) }, log), {
+      expectedDocument: "PROJECT FASE 1.dwg",
+    });
+
+    const notes = steps.find((s) => s.name.startsWith("Fase 1 notes"))!;
+    expect(notes.status).toBe("OK");
+    expect(log.find((c) => c.method === "eraseEntities")!.params.handles).toEqual(["CF57", "CF6E"]);
+    const rewrite = log.find((c) => c.method === "updateTextContent")!;
+    expect(rewrite.params.handle).toBe("CF80");
+    expect(String(rewrite.params.text)).not.toMatch(/\bPROP(OSED)?\b/);
+    expect(log.at(-1)!.method).toBe("saveDrawing");
+  });
+
+  it("moves what the shortened notes left behind (VILLA ONE: the '(NOT PART OF M-WASD NOTES…)' glyphs) by the distance the notes' bottom moved up", async () => {
+    const log: Call[] = [];
+    let rewritten = false;
+    const cf80Before = { handle: "CF80", text: CF80, layout: "C-300", space: "paper", x: 25.66, y: 17.923, minX: 25.6, minY: 6.4, maxX: 32.0, maxY: 17.95 };
+    const cf80After = { ...cf80Before, text: "(rewritten)", minY: 14.0222 }; // top fixed, bottom up 7.6222
+    const steps = await runFase1Build(
+      fakePlugin(
+        {
+          ...happyResponses,
+          listTextEntities: (p: Record<string, unknown>) =>
+            p.contains === "PROP" ? { entities: [cf80Before] } : { entities: [rewritten ? cf80After : cf80Before, { handle: "D4F2", text: "AGR. NO.", layout: "C-300", minX: 32.4, minY: 0.8, maxX: 36.3, maxY: 1.0 }] },
+          updateTextContent: () => { rewritten = true; return { handle: "CF80" }; },
+          listPolylineEntities: {
+            entities: [
+              { handle: "D25C", layout: "C-300", minX: 25.62, minY: 7.39, maxX: 26.1, maxY: 7.56 }, // glyph: moves
+              { handle: "D286", layout: "C-300", minX: 28.2, minY: 7.4, maxX: 28.6, maxY: 7.55 }, // glyph: moves
+              { handle: "FRAME", layout: "C-300", minX: 25.5, minY: 0.2, maxX: 25.5, maxY: 23.6 }, // sheet frame crossing the band: stays
+              { handle: "OTHER", layout: "C-301", minX: 26, minY: 8, maxX: 27, maxY: 8.2 }, // another layout: stays
+            ],
+          },
+          listShapeEntities: { entities: [{ handle: "D25B", layout: "C-300", minX: 25.6, minY: 7.41, maxX: 25.7, maxY: 7.5 }] }, // arc glyph: moves
+          moveEntities: { movedCount: 3 },
+        },
+        log,
+      ),
+      { expectedDocument: "PROJECT FASE 1.dwg", save: false },
+    );
+
+    const move = log.find((c) => c.method === "moveEntities")!;
+    expect(move.params.handles).toEqual(["D25C", "D286", "D25B"]);
+    expect(move.params.dx).toBe(0);
+    expect(move.params.dy as number).toBeCloseTo(7.6222, 4);
+    expect(steps.find((s) => s.name.startsWith("Fase 1 notes"))!.detail).toContain("moved 3 entit(ies) left under CF80 up 7.6222");
+  });
+
+  it("says so (instead of guessing) when the plugin gives no text extents to measure the shift", async () => {
+    const log: Call[] = [];
+    const steps = await runFase1Build(
+      fakePlugin({ ...happyResponses, listTextEntities: listText([{ handle: "CF80", text: CF80, layout: "C-300", x: 25.66, y: 17.923 }]) }, log),
+      { expectedDocument: "PROJECT FASE 1.dwg", save: false },
+    );
+    expect(steps.find((s) => s.name.startsWith("Fase 1 notes"))!.detail).toContain("fase1-notes-shift.py");
+    expect(log.some((c) => c.method === "moveEntities")).toBe(false);
+  });
+
+  it("stops without changing anything when an on-sheet PROP text is not the MD-WASD notes", async () => {
+    const log: Call[] = [];
+    const steps = await runFase1Build(
+      fakePlugin({ ...happyResponses, listTextEntities: listText([{ handle: "X1", text: "PROPOSED 8\" WM", layout: "C-300", x: 10, y: 10 }]) }, log),
+      { expectedDocument: "PROJECT FASE 1.dwg" },
+    );
+    expect(steps.find((s) => s.name.startsWith("Fase 1 notes"))!.status).toBe("FAIL");
+    expect(log.some((c) => c.method === "eraseEntities" || c.method === "updateTextContent" || c.method === "saveDrawing")).toBe(false);
+  });
+
+  it("skips the PROP-notes step with stripPropNotes:false", async () => {
+    const log: Call[] = [];
+    await runFase1Build(fakePlugin(happyResponses, log), { expectedDocument: "PROJECT FASE 1.dwg", stripPropNotes: false, save: false });
+    expect(log.some((c) => c.method === "listTextEntities")).toBe(false);
+  });
+
+  it("reports the twist actually applied (not a truncated 'before' dump)", async () => {
+    const steps = await runFase1Build(
+      fakePlugin(
+        {
+          ...happyResponses,
+          setViewportTwist: (p: Record<string, unknown>) =>
+            p.layout === "Model"
+              ? { layout: "Model", beforeTwistDegrees: 0, twistDegrees: 268.4891, snapAngleDegrees: 91.5109, modelCenterX: 859788.5785, modelCenterY: 444723.8975 }
+              : (happyResponses.setViewportTwist as unknown),
+        },
+        [],
+      ),
+      {
+        expectedDocument: "PROJECT FASE 1.dwg",
+        twists: [{ layout: "C-300", streetAngleDegrees: 91.5109 }, { layout: "Model", streetAngleDegrees: 91.5109 }],
+        save: false,
+      },
+    );
+    expect(steps.find((s) => s.name === "twist C-300")!.detail).toBe("viewport CDF1: twist 359.11° -> 268.4891°, center 859789.1908, 444700.6855, scale 1\" = 20'");
+    expect(steps.find((s) => s.name === "twist Model")!.detail).toContain("-> 268.4891°, snap 91.5109°");
   });
 
   it("honours save:false by not issuing a final save", async () => {
     const log: Call[] = [];
     await runFase1Build(fakePlugin(happyResponses, log), {
+      expectedDocument: "PROJECT FASE 1.dwg",
       entities: [{ kind: "mtext", text: "x" }],
       save: false,
     });

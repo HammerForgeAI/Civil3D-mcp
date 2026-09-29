@@ -4,6 +4,8 @@
  *
  * Kept free of MCP/zod imports so it can be unit-tested with a fake `send`.
  */
+import { isPropText, stripMText } from "./fase1PropNotes.js";
+
 export type Fase1Level = "OK" | "WARN" | "FAIL";
 
 export interface Fase1Check {
@@ -24,11 +26,6 @@ export interface Fase1AuditOptions {
 export type PluginSend = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
 type Loose = Record<string, unknown>;
-
-const stripMText = (value: unknown): string =>
-  String(value ?? "").replace(/\\P/g, " ").replace(/\\[A-Za-z][^;\\]*;/g, "").replace(/[{}]/g, "");
-
-const isPropText = (value: unknown): boolean => /\bPROP\b|\bPROPOSED\b/i.test(stripMText(value));
 
 const asArray = (value: unknown): Loose[] => (Array.isArray(value) ? (value as Loose[]) : []);
 
@@ -78,7 +75,7 @@ export async function runFase1Audit(send: PluginSend, options: Fase1AuditOptions
       add("OK", "PROP text in Model", "none");
     }
     if (paper.length) {
-      add("FAIL", "PROP/PROPOSED in paper space", `${paper.length} note MText(s) (${paper.map((e) => `${e.layout}:${e.handle}`).join(", ")}) -> strip with fase1-strip-prop-notes.mjs + acad_update_text_content; erase off-sheet template notes`);
+      add("FAIL", "PROP/PROPOSED in paper space", `${paper.length} note MText(s) (${paper.map((e) => `${e.layout}:${e.handle}`).join(", ")}) -> civil3d_workflow_fase1_build { expectedDocument: "<this DWG name>" } fixes both in one call (rewrites the on-sheet MD-WASD notes, erases the off-sheet template notes, saves)`);
     } else {
       add("OK", "PROP/PROPOSED in paper space", "none");
     }
