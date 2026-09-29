@@ -399,11 +399,18 @@ describe("civil3d_plot native implementation guards", () => {
     // The content check reads the handle Commit checked, never the path again.
     expect(source).toContain("output.Commit((path, stream) => VerifyOutput(path, stream, job.StartedUtc))");
     expect(source).toContain("output.Commit((path, stream) => VerifyOutput(path, stream, startedUtc))");
-    const verify = pluginCode("PlotCommands.cs").slice(pluginCode("PlotCommands.cs").indexOf("OutputFile VerifyOutput("));
-    expect(verify.slice(0, verify.indexOf("private static string BuildDsd"))).not.toMatch(/\b(?:FileInfo|File\.ReadAll\w*|File\.Open\w*)\(/);
+    // Both anchors must exist, or the guard would pass on an empty slice.
+    const verifyStart = pluginCode("PlotCommands.cs").indexOf("OutputFile VerifyOutput(");
+    expect(verifyStart).toBeGreaterThan(-1);
+    const verify = pluginCode("PlotCommands.cs").slice(verifyStart);
+    const buildDsdStart = verify.indexOf("private static string BuildDsd");
+    expect(buildDsdStart).toBeGreaterThan(0);
+    expect(verify.slice(0, buildDsdStart)).not.toMatch(/\b(?:FileInfo|File\.ReadAll\w*|File\.Open\w*)\(/);
     // The publish DSD is written under the external-write lock, then re-checked
     // and held open right before -PUBLISH reads it.
-    const publish = source.slice(source.indexOf("FileBoundary.BeginExternalWrite(outputPath, overwrite)"));
+    const publishStart = source.indexOf("FileBoundary.BeginExternalWrite(outputPath, overwrite)");
+    expect(publishStart).toBeGreaterThan(-1);
+    const publish = source.slice(publishStart);
     const dsdWrite = publish.indexOf("FileBoundary.WriteAllTextAtomic(dsdPath, dsd, encoding, true, \".dsd\")");
     const dsdHold = publish.indexOf("FileBoundary.HoldVerifiedFile(dsdPath, dsd, encoding)");
     expect(dsdWrite).toBeGreaterThan(-1);
