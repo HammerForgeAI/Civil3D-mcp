@@ -32,6 +32,15 @@ describe("domain manifest migration", () => {
     expect(GENERATED_TOOL_CATALOG_ENTRIES.some((entry) => entry.toolName === "civil3d_workflow_fase1_audit")).toBe(true);
   });
 
+  it("registers the fase 1 build workflow (drawing side of fase1_audit) as a mutating operation", () => {
+    const workflow = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_workflow");
+    const build = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_workflow_fase1_build");
+
+    expect(workflow!.operations).toContain("fase1_build");
+    expect(build).toBeDefined();
+    expect(build!.safeForRetry).toBe(false);
+  });
+
   it("registers bulk erase and gravity network delete as approval-gated operations", () => {
     const geometry = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_geometry");
     const pipe = GENERATED_TOOL_CATALOG_ENTRIES.find((entry) => entry.toolName === "civil3d_pipe");

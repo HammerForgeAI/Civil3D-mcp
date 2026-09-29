@@ -2,7 +2,7 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 243
+- Catalog entries: 244
 - Domains: 29
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
@@ -236,12 +236,13 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_survey_figure_get` | survey | — | getSurveyFigure | yes |
 | `civil3d_survey_figure_list` | survey | — | listSurveyFigures | yes |
 | `civil3d_survey_observation_list` | survey | — | listSurveyObservations | yes |
-| `civil3d_workflow` | workflow | corridor_qc_report, grading_surface_volume, surface_comparison_report, data_shortcut_publish_sync, data_shortcut_reference_sync, project_startup, project_reference_setup, drawing_readiness_audit, feature_line_to_grading, pipe_network_design, plan_production_publish, qc_fix_and_verify, fase1_audit | corridorQcReportWorkflow, calculateSurfaceVolume, surfaceComparisonReportWorkflow, dataShortcutPublishSyncWorkflow, dataShortcutReferenceSyncWorkflow, projectStartupWorkflow, projectReferenceSetupWorkflow, drawingReadinessAuditWorkflow, featureLineToGradingWorkflow, getPipeNetwork, listPipePartsCatalog, resizePipeInNetwork, analyzePipeNetworkHydraulics, planProductionPublishWorkflow, qcFixAndVerifyWorkflow, listLayouts, listTextEntities, listPressureNetworks, profileViewInfo, listPipeNetworks, listAlignments, getAlignment, listSurfaces, listLayers | no |
+| `civil3d_workflow` | workflow | corridor_qc_report, grading_surface_volume, surface_comparison_report, data_shortcut_publish_sync, data_shortcut_reference_sync, project_startup, project_reference_setup, drawing_readiness_audit, feature_line_to_grading, pipe_network_design, plan_production_publish, qc_fix_and_verify, fase1_audit, fase1_build | corridorQcReportWorkflow, calculateSurfaceVolume, surfaceComparisonReportWorkflow, dataShortcutPublishSyncWorkflow, dataShortcutReferenceSyncWorkflow, projectStartupWorkflow, projectReferenceSetupWorkflow, drawingReadinessAuditWorkflow, featureLineToGradingWorkflow, getPipeNetwork, listPipePartsCatalog, resizePipeInNetwork, analyzePipeNetworkHydraulics, planProductionPublishWorkflow, qcFixAndVerifyWorkflow, listLayouts, listTextEntities, listPressureNetworks, profileViewInfo, listPipeNetworks, listAlignments, getAlignment, listSurfaces, listLayers, newDrawing, saveDrawing, attachXref, createAlignment, insertBlockReference, createEntities, setViewportTwist, updateTextContent | no |
 | `civil3d_workflow_corridor_qc_report` | workflow | — | corridorQcReportWorkflow | no |
 | `civil3d_workflow_data_shortcut_publish_sync` | workflow | — | dataShortcutPublishSyncWorkflow | no |
 | `civil3d_workflow_data_shortcut_reference_sync` | workflow | — | dataShortcutReferenceSyncWorkflow | no |
 | `civil3d_workflow_drawing_readiness_audit` | workflow | — | drawingReadinessAuditWorkflow | yes |
 | `civil3d_workflow_fase1_audit` | workflow | — | listLayouts, listTextEntities, listPressureNetworks, profileViewInfo, listPipeNetworks, listAlignments, getAlignment, listSurfaces, listLayers | yes |
+| `civil3d_workflow_fase1_build` | workflow | — | newDrawing, saveDrawing, attachXref, createAlignment, insertBlockReference, createEntities, setViewportTwist, listTextEntities, updateTextContent | no |
 | `civil3d_workflow_feature_line_to_grading` | workflow | — | featureLineToGradingWorkflow | no |
 | `civil3d_workflow_grading_surface_volume` | workflow | — | calculateSurfaceVolume | yes |
 | `civil3d_workflow_pipe_network_design` | workflow | — | getPipeNetwork, listPipePartsCatalog, resizePipeInNetwork, analyzePipeNetworkHydraulics | no |

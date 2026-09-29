@@ -95,6 +95,7 @@ describe("Tool Catalog", () => {
       "acad_erase_entities",
       "acad_list_layers",
       "civil3d_workflow_fase1_audit",
+      "civil3d_workflow_fase1_build",
       "civil3d_pipe_network_delete",
       "civil3d_profile_add_pvi",
       "civil3d_corridor_target_mapping_get",
