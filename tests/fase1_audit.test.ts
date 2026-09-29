@@ -30,6 +30,9 @@ const cleanDrawing: Responses = {
   "getAlignment:SW 118TH AVE": { style: "BCC - ALIGNMENT" },
   listSurfaces: { surfaces: [{ name: "EG" }] },
   listLayers: { layers: [{ name: "C-TINN-BNDY", isFrozen: true, isOff: false }] },
+  listDimensions: { entities: [
+    { handle: "D1", xLine1Point: [100, 100], xLine2Point: [105, 100], textX: 102.5, textY: 99.7 },
+  ] },
 };
 
 const level = (checks: Awaited<ReturnType<typeof runFase1Audit>>, what: string) => checks.find((c) => c.what === what)?.level;
@@ -41,6 +44,21 @@ describe("fase1 audit", () => {
     expect(summarizeFase1(checks).fail).toBe(0);
     expect(level(checks, "surface boundary")).toBe("OK");
     expect(level(checks, "alignment SW 118TH AVE")).toBe("OK");
+    expect(level(checks, "dimension text position")).toBe("OK");
+  });
+
+  it("warns when a dimension's text drifted off its own line (the DIMFIT short-dimension bug)", async () => {
+    const detachedDim: Responses = {
+      ...cleanDrawing,
+      listDimensions: { entities: [
+        // 5 ft line, text ~8 ft away -> past max(3, lineLen) -> flagged
+        { handle: "12235", xLine1Point: [859873.0, 444895.4], xLine2Point: [859872.9, 444900.4], textX: 859866.2, textY: 444895.6 },
+      ] },
+    };
+    const checks = await runFase1Audit(fakePlugin(detachedDim));
+    expect(level(checks, "dimension text position")).toBe("WARN");
+    expect(checks.find((c) => c.what === "dimension text position")!.detail).toContain("12235");
+    expect(checks.filter((c) => c.level === "FAIL")).toEqual([]);
   });
 
   it("fails every design leftover and names the fix", async () => {

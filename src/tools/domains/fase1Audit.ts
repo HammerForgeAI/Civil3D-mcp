@@ -135,6 +135,51 @@ export async function runFase1Audit(send: PluginSend, options: Fase1AuditOptions
     }
   }
 
+  // 6. dimension text detached from its own line (WARN, not Fase-1-specific): catches the
+  // acad_create_aligned_dimension short-dimension bug found 2026-09-28 -- AutoCAD's own DIMFIT
+  // auto-placement can eject a short dimension's text several feet from its line (a 5 ft U.E./PL
+  // corner dim at 1:20 scale is the case that surfaced it). Mirrors scripts/fase1-audit.mjs check 6
+  // so the native tool (subagents, no Bash) and the standalone script never drift apart again.
+  const dims = await call("listDimensions", { layer: "C-ANNO", space: "model", limit: 500 });
+  if (!dims.ok) {
+    add("WARN", "dimension text position", dims.error);
+  } else {
+    const distToSegment = (px: number, py: number, ax: number, ay: number, bx: number, by: number): number => {
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 > 1e-9 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+      const cx = ax + t * dx;
+      const cy = ay + t * dy;
+      return Math.hypot(px - cx, py - cy);
+    };
+    const entities = asArray(dims.value.entities);
+    const detached: { handle: string; dist: string; lineLen: string }[] = [];
+    for (const d of entities) {
+      const line1 = Array.isArray(d.xLine1Point) ? (d.xLine1Point as number[]) : undefined;
+      const line2 = Array.isArray(d.xLine2Point) ? (d.xLine2Point as number[]) : undefined;
+      const textX = typeof d.textX === "number" ? d.textX : undefined;
+      const textY = typeof d.textY === "number" ? d.textY : undefined;
+      if (!line1 || !line2 || textX === undefined || textY === undefined) continue;
+      const [ax, ay] = line1;
+      const [bx, by] = line2;
+      const lineLen = Math.hypot(bx - ax, by - ay);
+      const dist = distToSegment(textX, textY, ax, ay, bx, by);
+      if (dist > Math.max(3, lineLen)) {
+        detached.push({ handle: String(d.handle), dist: dist.toFixed(2), lineLen: lineLen.toFixed(2) });
+      }
+    }
+    if (detached.length) {
+      add(
+        "WARN",
+        "dimension text position",
+        `${detached.length} dimension(s) with text far from their line: ${detached.map((x) => `${x.handle} (${x.dist} ft away, line ${x.lineLen} ft)`).join(", ")} -> recreate with acad_create_aligned_dimension passing explicit dimLineX/dimLineY (not just offset), or reposition in place with acad_update_text_content {handle, x, y}`,
+      );
+    } else {
+      add("OK", "dimension text position", `${entities.length} C-ANNO dimension(s), none detached`);
+    }
+  }
+
   return checks;
 }
 
