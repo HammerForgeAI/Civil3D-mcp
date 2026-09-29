@@ -419,11 +419,11 @@ describe("civil3d_plot native implementation guards", () => {
   it("refuses to feed a new command into a prompt an earlier request left open", () => {
     const runner = pluginSource("CommandLineRunner.cs");
     const run = runner.slice(runner.indexOf("internal static async Task RunAsync"));
-    const staleCheck = run.indexOf("FindActiveCommand(PendingCommandsFor(doc))");
+    const staleCheck = run.indexOf("FindActiveCommand(doc, PendingCommandsFor(doc))");
     const command = run.indexOf("await doc.Editor.CommandAsync(tokens)");
     expect(staleCheck).toBeGreaterThan(-1);
     expect(staleCheck).toBeLessThan(command);
-    expect(run.indexOf("FindActiveCommand([commandName])")).toBeGreaterThan(command);
+    expect(run.indexOf("ActiveCommandNames(doc)")).toBeGreaterThan(command);
     // Only unfinished invocations are remembered: a command that completed is
     // forgotten at once, so a PLOT/PUBLISH/XREF the user starts later is not
     // cancelled as a stale request, and pending entries are per document.
@@ -431,6 +431,9 @@ describe("civil3d_plot native implementation guards", () => {
     expect(runner).toContain("List<(Document Doc, string Command)> PendingInvocations");
     expect(run.indexOf("PendingInvocations.Remove(invocation)")).toBeGreaterThan(command);
     expect(runner).toContain("ReferenceEquals(entry.Doc, doc)");
+    // CMDNAMES describes only the active drawing, so pending state for
+    // another drawing is never updated from it.
+    expect(runner).toContain("ReferenceEquals(App.DocumentManager.MdiActiveDocument, doc)");
   });
 
   it("skips or rejects never-initialized layouts before publishing", () => {
