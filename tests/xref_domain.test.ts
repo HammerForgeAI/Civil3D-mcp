@@ -105,11 +105,14 @@ describe("civil3d_xref command-line runner", () => {
     const runner = readFileSync(new URL("../Civil3D-MCP-Plugin/CommandLineRunner.cs", import.meta.url), "utf8");
     const run = runner.slice(runner.indexOf("internal static async Task RunAsync"));
     const command = run.indexOf("await doc.Editor.CommandAsync(tokens)");
-    const staleCheck = run.indexOf("FindActiveCommand(PendingCommandsFor(doc))");
+    const staleCheck = run.indexOf("FindActiveCommand(doc, PendingCommandsFor(doc))");
     expect(staleCheck).toBeGreaterThan(-1);
     expect(staleCheck).toBeLessThan(command);
     expect(run.indexOf("PendingInvocations.Remove(invocation)")).toBeGreaterThan(command);
     expect(runner).not.toContain("HashSet<string> DrivenCommands");
     expect(runner).toContain("ReferenceEquals(entry.Doc, doc)");
+    // CMDNAMES describes only the active drawing, so pending state for
+    // another drawing is never updated from it.
+    expect(runner).toContain("ReferenceEquals(App.DocumentManager.MdiActiveDocument, doc)");
   });
 });

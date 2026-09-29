@@ -30,7 +30,7 @@ internal static class CommandLineRunner
     // only runs after the host work returns, so check here that no command an
     // earlier request left at a prompt in this document is still there before
     // feeding it this request's answers.
-    var stale = FindActiveCommand(PendingCommandsFor(doc));
+    var stale = FindActiveCommand(doc, PendingCommandsFor(doc));
     if (stale != null)
     {
       var stalePrompt = Convert.ToString(App.GetSystemVariable("LASTPROMPT"));
@@ -55,9 +55,12 @@ internal static class CommandLineRunner
     {
       // Forget the invocation once the command is no longer active (normal
       // completion, or a failure that ended it); keep it only while it may
-      // still be at a prompt.
-      stillActive = FindActiveCommand([commandName]) != null;
-      if (!stillActive)
+      // still be at a prompt. If another drawing became active, CMDNAMES says
+      // nothing about this one: keep the entry, and the next request in this
+      // drawing checks it again.
+      var active = ActiveCommandNames(doc);
+      stillActive = active != null && active.Contains(commandName, StringComparer.OrdinalIgnoreCase);
+      if (active != null && !stillActive)
       {
         lock (PendingInvocations)
         {
@@ -82,16 +85,18 @@ internal static class CommandLineRunner
 
   // Commands this runner left unfinished in <paramref name="doc"/>. Entries
   // whose command is no longer active (the queued cancel ran) are dropped, and
-  // so are entries for documents that have been closed.
+  // so are entries for documents that have been closed. Entries are only
+  // dropped as finished while <paramref name="doc"/> is the active drawing,
+  // because CMDNAMES describes the active drawing only.
   private static string[] PendingCommandsFor(Document doc)
   {
-    var active = ActiveCommandNames();
+    var active = ActiveCommandNames(doc);
     var open = App.DocumentManager.Cast<Document>().ToList();
     lock (PendingInvocations)
     {
       PendingInvocations.RemoveAll(entry =>
         !open.Contains(entry.Doc)
-        || (ReferenceEquals(entry.Doc, doc) && !active.Contains(entry.Command, StringComparer.OrdinalIgnoreCase)));
+        || (active != null && ReferenceEquals(entry.Doc, doc) && !active.Contains(entry.Command, StringComparer.OrdinalIgnoreCase)));
       return PendingInvocations
         .Where(entry => ReferenceEquals(entry.Doc, doc))
         .Select(entry => entry.Command)
@@ -100,8 +105,15 @@ internal static class CommandLineRunner
     }
   }
 
-  private static string[] ActiveCommandNames()
+  // The commands active in <paramref name="doc"/>, or null when it is not the
+  // active drawing (CMDNAMES is only known for the active drawing).
+  private static string[]? ActiveCommandNames(Document doc)
   {
+    if (!ReferenceEquals(App.DocumentManager.MdiActiveDocument, doc))
+    {
+      return null;
+    }
+
     var activeCommands = Convert.ToString(App.GetSystemVariable("CMDNAMES")) ?? string.Empty;
     return activeCommands
       .Split('\'')
@@ -110,15 +122,15 @@ internal static class CommandLineRunner
       .ToArray();
   }
 
-  private static string? FindActiveCommand(IReadOnlyCollection<string> commandNames)
+  private static string? FindActiveCommand(Document doc, IReadOnlyCollection<string> commandNames)
   {
     if (commandNames.Count == 0)
     {
       return null;
     }
 
-    return ActiveCommandNames()
-      .FirstOrDefault(name => commandNames.Contains(name, StringComparer.OrdinalIgnoreCase));
+    return ActiveCommandNames(doc)
+      ?.FirstOrDefault(name => commandNames.Contains(name, StringComparer.OrdinalIgnoreCase));
   }
 
   private static void QueueCancel(Document doc)
