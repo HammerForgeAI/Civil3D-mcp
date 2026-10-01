@@ -431,7 +431,11 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
         continue;
       }
       const dy = Number(now.minY) - Number(note.minY);
-      if (dy < 0.01) continue; // bottom did not move up (e.g. bottom-attached MText): nothing is orphaned
+      if (dy < 0.01) {
+        // bottom-attached MText keeps its bottom (nothing orphaned) -- but say so: a silent skip hid a bad extents read once
+        out.push(`${note.handle} bottom did not move up (dy ${fmt(dy)}); nothing shifted -- check the plot`);
+        continue;
+      }
       const band = { x1: Number(note.minX) - tol, x2: Number(note.maxX) + tol, y1: Number(note.minY) - tol, y2: Number(now.minY) + tol };
       const inside = (e: Loose) =>
         hasBox(e) && (String(e.layout ?? "") === String(note.layout ?? "") || !note.layout) &&

@@ -322,6 +322,26 @@ describe("fase1 build", () => {
     expect(log.some((c) => c.method === "moveEntities")).toBe(false);
   });
 
+  it("reports (never silently skips) a rewrite whose bottom did not move up (2026-09-28 live run: bad MText extents)", async () => {
+    const log: Call[] = [];
+    // What the first live run read for CF80 before and after the rewrite: a 0.46" box that did not change.
+    const cf80 = { handle: "CF80", text: CF80, layout: "C-300", space: "paper", x: 25.66, y: 17.923, minX: 25.66, minY: 17.4617, maxX: 32.02, maxY: 17.923 };
+    const steps = await runFase1Build(
+      fakePlugin(
+        {
+          ...happyResponses,
+          listTextEntities: (p: Record<string, unknown>) => ({ entities: [p.contains === "PROP" ? cf80 : { ...cf80, text: "(rewritten)" }] }),
+          listPolylineEntities: { entities: [] },
+          listShapeEntities: { entities: [] },
+        },
+        log,
+      ),
+      { expectedDocument: "PROJECT FASE 1.dwg", save: false },
+    );
+    expect(steps.find((s) => s.name.startsWith("Fase 1 notes"))!.detail).toContain("CF80 bottom did not move up");
+    expect(log.some((c) => c.method === "moveEntities")).toBe(false);
+  });
+
   it("stops without changing anything when an on-sheet PROP text is not the MD-WASD notes", async () => {
     const log: Call[] = [];
     const steps = await runFase1Build(

@@ -774,12 +774,65 @@ public static class AcadCommands
 
   private static void AddTextExtents(Dictionary<string, object?> entry, Entity entity)
   {
+    // MText.GeometricExtents is unreliable on a multi-paragraph note (VILLA ONE CF80: 0.46" tall for a ~10" note, so
+    // fase1_build measured a zero shift); its real box comes from ActualWidth/ActualHeight around the attachment point.
+    if (entity is MText mText && TryGetMTextBox(mText, out var minX, out var minY, out var maxX, out var maxY))
+    {
+      entry["minX"] = minX;
+      entry["minY"] = minY;
+      entry["maxX"] = maxX;
+      entry["maxY"] = maxY;
+      return;
+    }
+
     Extents3d? bounds = null;
     try { bounds = entity.GeometricExtents; } catch { bounds = null; }
     entry["minX"] = bounds?.MinPoint.X;
     entry["minY"] = bounds?.MinPoint.Y;
     entry["maxX"] = bounds?.MaxPoint.X;
     entry["maxY"] = bounds?.MaxPoint.Y;
+  }
+
+  private static bool TryGetMTextBox(MText mText, out double minX, out double minY, out double maxX, out double maxY)
+  {
+    minX = minY = maxX = maxY = 0;
+    double width, height;
+    try
+    {
+      width = mText.ActualWidth;
+      height = mText.ActualHeight;
+    }
+    catch
+    {
+      return false;
+    }
+
+    var attachment = (int)mText.Attachment;
+    if (height <= 0 || width < 0 || attachment < 1 || attachment > 9)
+    {
+      return false;
+    }
+
+    // Attachment 1..9 = Top/Middle/Bottom x Left/Center/Right: offset of the box's top-left from the insertion point.
+    var column = (attachment - 1) % 3;
+    var row = (attachment - 1) / 3;
+    var left = -width * column / 2.0;
+    var top = height * row / 2.0;
+    var cos = Math.Cos(mText.Rotation);
+    var sin = Math.Sin(mText.Rotation);
+    minX = minY = double.MaxValue;
+    maxX = maxY = double.MinValue;
+    foreach (var (u, v) in new[] { (left, top), (left + width, top), (left, top - height), (left + width, top - height) })
+    {
+      var x = mText.Location.X + u * cos - v * sin;
+      var y = mText.Location.Y + u * sin + v * cos;
+      minX = Math.Min(minX, x);
+      minY = Math.Min(minY, y);
+      maxX = Math.Max(maxX, x);
+      maxY = Math.Max(maxY, y);
+    }
+
+    return true;
   }
 
   private static Dictionary<string, object?> BuildTextEntry(DBText dbText, string layoutName, bool isModelSpace) => new()
