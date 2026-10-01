@@ -88,6 +88,8 @@ export interface Fase1BuildOptions {
   xrefs?: Fase1BuildXref[];
   alignment?: Fase1BuildAlignment;
   clImport?: Fase1BuildClImport;
+  /** More block definitions to import from another DWG, same as clImport (e.g. "EXIST ARROW" / "FH" from the package C-300 for the utility labels). */
+  blockImports?: Fase1BuildClImport[];
   entities?: Fase1BuildEntity[];
   layers?: Record<string, unknown>;
   /** Xref layers to freeze after attaching the xrefs (e.g. "X-TOPO|DIM": the survey's own R/W dims that duplicate the sheet's). */
@@ -292,14 +294,19 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
   // X-TOPO), then let the batch below place any further copies (create_entities needs the block to
   // already be defined in the drawing; it has no sourceFilePath of its own).
   let entities = options.entities ?? [];
-  if (options.clImport) {
-    const idx = entities.findIndex((e) => e.kind === "block" && e.blockName === options.clImport!.blockName);
-    const label = `import block "${options.clImport.blockName}"`;
+  const imports = [...(options.clImport ? [options.clImport] : []), ...(options.blockImports ?? [])];
+  for (const imp of imports) {
+    const idx = entities.findIndex((e) => e.kind === "block" && e.blockName === imp.blockName);
+    const label = `import block "${imp.blockName}"`;
     if (idx >= 0) {
       const first = entities[idx];
+      // the first copy is placed by insertBlockReference, which drops a block on the CURRENT layer when its own layer does not exist
+      // yet (createEntities makes `layers` only later): define that layer first when the payload describes it
+      const layerDef = typeof first.layer === "string" ? (options.layers?.[first.layer] as Loose | undefined) : undefined;
+      if (layerDef) await call(`layer ${String(first.layer)}`, "createOrUpdateLayer", { name: first.layer, ...layerDef });
       await call(label, "insertBlockReference", {
-        blockName: options.clImport.blockName,
-        sourceFilePath: options.clImport.sourceFilePath,
+        blockName: imp.blockName,
+        sourceFilePath: imp.sourceFilePath,
         x: first.x,
         y: first.y,
         z: first.z,

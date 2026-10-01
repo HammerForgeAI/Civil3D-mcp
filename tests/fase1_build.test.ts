@@ -203,6 +203,37 @@ describe("fase1 build", () => {
     expect(batchEntities.filter((e) => e.kind === "block")).toHaveLength(1);
   });
 
+  it("imports every blockImports definition (first copy each), creating the block's layer first when the payload describes it", async () => {
+    const log: Call[] = [];
+    await runFase1Build(fakePlugin({ ...happyResponses, createOrUpdateLayer: { created: true } }, log), {
+      expectedDocument: "PROJECT FASE 1.dwg",
+      clImport: { blockName: "_cl", sourceFilePath: "X-TOPO.dwg" },
+      blockImports: [
+        { blockName: "EXIST ARROW", sourceFilePath: "PACKAGE.dwg" },
+        { blockName: "FH", sourceFilePath: "PACKAGE.dwg" },
+      ],
+      layers: { "C-FH-EXIST": { colorIndex: 8, linetype: "Continuous", lineweight: -3, plot: true } },
+      entities: [
+        { kind: "block", blockName: "_cl", x: 1, y: 2, layer: "TEXT" },
+        { kind: "block", blockName: "EXIST ARROW", x: 3, y: 4, layer: "C-ANNO" },
+        { kind: "block", blockName: "EXIST ARROW", x: 5, y: 6, layer: "C-ANNO" },
+        { kind: "block", blockName: "FH", x: 7, y: 8, layer: "C-FH-EXIST" },
+        { kind: "mtext", text: "x" },
+      ],
+      save: false,
+    });
+
+    const imports = log.filter((c) => c.method === "insertBlockReference");
+    expect(imports.map((c) => c.params.blockName)).toEqual(["_cl", "EXIST ARROW", "FH"]);
+    expect(imports[2].params).toMatchObject({ sourceFilePath: "PACKAGE.dwg", x: 7, y: 8 });
+    // the FH layer is defined BEFORE the FH import lands on it; C-ANNO has no definition in the payload, so no layer call for it
+    const layerCalls = log.filter((c) => c.method === "createOrUpdateLayer");
+    expect(layerCalls.map((c) => c.params.name)).toEqual(["C-FH-EXIST"]);
+    expect(log.indexOf(layerCalls[0])).toBeLessThan(log.indexOf(imports[2]));
+    const batch = log.find((c) => c.method === "createEntities")!.params.entities as Array<Record<string, unknown>>;
+    expect(batch).toHaveLength(2); // the second EXIST ARROW + the mtext
+  });
+
   it("skips the block import when no matching block entity is in the batch, and still builds the rest", async () => {
     const log: Call[] = [];
     const steps = await runFase1Build(fakePlugin(happyResponses, log), {
