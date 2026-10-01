@@ -177,6 +177,22 @@ export async function runFase1Audit(send: PluginSend, options: Fase1AuditOptions
     }
   }
 
+  // 7. survey dimensions hidden (WARN): an xref's own DIM layer left visible prints its dims on top of the sheet's C-ANNO dims
+  // (VILLA ONE 2026-10-01: X-TOPO|DIM, 13 R/W 25.00' dims, some upside down, doubled every C-ANNO dim -- in the guide too).
+  // Mirrors scripts/fase1-audit.mjs check 7.
+  const ownDims = dims.ok ? asArray(dims.value.entities).length : 0;
+  const xrefDimLayers = await call("listLayers", { namePattern: "*|DIM", includeXref: true });
+  if (!xrefDimLayers.ok) {
+    add("WARN", "survey dimensions hidden", xrefDimLayers.error);
+  } else {
+    const visible = asArray(xrefDimLayers.value.layers).filter((l) => l.isFrozen !== true && l.isOff !== true).map((l) => String(l.name));
+    if (visible.length && ownDims > 0) {
+      add("WARN", "survey dimensions hidden", `${visible.join(", ")} visible while the sheet has ${ownDims} C-ANNO dimension(s): they print doubled -> ${visible.map((n) => `acad_create_or_update_layer {name:"${n}", frozen:true}`).join("; ")} (fase1_build does it with freezeLayers)`);
+    } else {
+      add("OK", "survey dimensions hidden", visible.length ? `${visible.join(", ")} visible but the sheet has no C-ANNO dimensions of its own` : "no xref DIM layer visible");
+    }
+  }
+
   return checks;
 }
 

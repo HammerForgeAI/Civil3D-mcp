@@ -13,7 +13,7 @@ function fakePlugin(responses: Responses): PluginSend {
     if (value instanceof Error) {
       throw value;
     }
-    return value;
+    return typeof value === "function" ? (value as (p: Record<string, unknown>) => unknown)(params) : value;
   };
 }
 
@@ -59,6 +59,19 @@ describe("fase1 audit", () => {
     expect(level(checks, "dimension text position")).toBe("WARN");
     expect(checks.find((c) => c.what === "dimension text position")!.detail).toContain("12235");
     expect(checks.filter((c) => c.level === "FAIL")).toEqual([]);
+  });
+
+  it("warns when the survey's own DIM layer is visible next to the sheet's C-ANNO dims (VILLA ONE: doubled R/W dims)", async () => {
+    const layers = (frozen: boolean) => (p: Record<string, unknown>) =>
+      p.namePattern === "*|DIM"
+        ? { layers: [{ name: "X-TOPO|DIM", isFrozen: frozen, isOff: false }] }
+        : { layers: [{ name: "C-TINN-BNDY", isFrozen: true, isOff: false }] };
+    const visible = await runFase1Audit(fakePlugin({ ...cleanDrawing, listLayers: layers(false) }));
+    expect(level(visible, "survey dimensions hidden")).toBe("WARN");
+    expect(visible.find((c) => c.what === "survey dimensions hidden")!.detail).toContain('acad_create_or_update_layer {name:"X-TOPO|DIM", frozen:true}');
+    expect(visible.filter((c) => c.level === "FAIL")).toEqual([]);
+    const hidden = await runFase1Audit(fakePlugin({ ...cleanDrawing, listLayers: layers(true) }));
+    expect(level(hidden, "survey dimensions hidden")).toBe("OK");
   });
 
   it("fails every design leftover and names the fix", async () => {

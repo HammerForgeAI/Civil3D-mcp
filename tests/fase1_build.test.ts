@@ -322,6 +322,37 @@ describe("fase1 build", () => {
     expect(log.some((c) => c.method === "moveEntities")).toBe(false);
   });
 
+  it("freezes the requested xref layers right after the xrefs (only when present and visible)", async () => {
+    const log: Call[] = [];
+    const state: Record<string, boolean> = { "X-TOPO|DIM": false, "X-TOPO|ELEVATIONS": true };
+    const steps = await runFase1Build(
+      fakePlugin(
+        {
+          ...happyResponses,
+          listLayers: (p: Record<string, unknown>) => ({ layers: p.name in state ? [{ name: p.name, isFrozen: state[String(p.name)] }] : [] }),
+          createOrUpdateLayer: (p: Record<string, unknown>) => { state[String(p.name)] = Boolean(p.frozen); return { name: p.name, frozen: p.frozen }; },
+        },
+        log,
+      ),
+      {
+        expectedDocument: "PROJECT FASE 1.dwg",
+        xrefs: [{ filePath: "C:\\Proj\\X-TOPO.dwg" }],
+        freezeLayers: ["X-TOPO|DIM", "X-TOPO|ELEVATIONS", "X-TOPO|NOT_IN_THIS_SURVEY"],
+        stripPropNotes: false,
+        save: false,
+      },
+    );
+    const byName = (n: string) => steps.find((s) => s.name === `freeze ${n}`)!;
+    expect(byName("X-TOPO|DIM").detail).toBe("frozen");
+    expect(byName("X-TOPO|ELEVATIONS").detail).toBe("already frozen");
+    expect(byName("X-TOPO|NOT_IN_THIS_SURVEY").detail).toContain("nothing to hide");
+    expect(steps.every((s) => s.status === "OK")).toBe(true);
+    // after the xref, and only one write (the visible layer)
+    const order = log.map((c) => c.method);
+    expect(order.indexOf("attachXref")).toBeLessThan(order.indexOf("listLayers"));
+    expect(log.filter((c) => c.method === "createOrUpdateLayer").map((c) => c.params.name)).toEqual(["X-TOPO|DIM"]);
+  });
+
   it("reports (never silently skips) a rewrite whose bottom did not move up (2026-09-28 live run: bad MText extents)", async () => {
     const log: Call[] = [];
     // What the first live run read for CF80 before and after the rewrite: a 0.46" box that did not change.

@@ -139,6 +139,7 @@ const canonicalWorkflowInputShape = {
   titleBlock: z.array(Fase1BuildTitleReplacementSchema).optional(),
   expectedDocument: z.string().optional(),
   stripPropNotes: z.boolean().optional(),
+  freezeLayers: z.array(z.string()).optional(),
   sheet: Fase1BuildSheetSchema.optional(),
   save: z.boolean().optional(),
   corridorName: z.string().optional(),
@@ -296,6 +297,7 @@ const Fase1BuildArgsSchema = z.object({
   titleBlock: z.array(Fase1BuildTitleReplacementSchema).optional(),
   expectedDocument: z.string().optional(),
   stripPropNotes: z.boolean().optional(),
+  freezeLayers: z.array(z.string()).optional(),
   sheet: Fase1BuildSheetSchema.optional(),
   save: z.boolean().optional(),
 });
@@ -600,6 +602,8 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
         "listPolylineEntities",
         "listShapeEntities",
         "moveEntities",
+        "listLayers",
+        "createOrUpdateLayer",
       ],
       execute: async (args) => await withApplicationConnection(async (appClient) => {
         const buildSteps = await runFase1Build((method, params) => appClient.sendCommand(method, params), {
@@ -617,6 +621,7 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
           titleBlock: args.titleBlock as Parameters<typeof runFase1Build>[1]["titleBlock"],
           expectedDocument: args.expectedDocument as string | undefined,
           stripPropNotes: args.stripPropNotes as boolean | undefined,
+          freezeLayers: args.freezeLayers as string[] | undefined,
           sheet: args.sheet as Parameters<typeof runFase1Build>[1]["sheet"],
           save: args.save as boolean | undefined,
         });
@@ -1144,6 +1149,7 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
         titleBlock: z.array(Fase1BuildTitleReplacementSchema).optional(),
         expectedDocument: z.string().optional(),
         stripPropNotes: z.boolean().optional(),
+        freezeLayers: z.array(z.string()).optional(),
         sheet: Fase1BuildSheetSchema.optional(),
         save: z.boolean().optional(),
       },

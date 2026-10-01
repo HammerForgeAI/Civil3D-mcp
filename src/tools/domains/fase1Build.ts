@@ -90,6 +90,8 @@ export interface Fase1BuildOptions {
   clImport?: Fase1BuildClImport;
   entities?: Fase1BuildEntity[];
   layers?: Record<string, unknown>;
+  /** Xref layers to freeze after attaching the xrefs (e.g. "X-TOPO|DIM": the survey's own R/W dims that duplicate the sheet's). */
+  freezeLayers?: string[];
   entitySpace?: "model" | "paper";
   entityLayout?: string;
   twists?: Fase1BuildTwist[];
@@ -248,6 +250,29 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
       scale: xref.scale,
       rotation: xref.rotation,
     });
+  }
+
+  // 3b: hide xref layers that print duplicated on the sheet (VILLA ONE 2026-10-01: the survey's own R/W dims on X-TOPO|DIM,
+  // some upside down, doubled every C-ANNO 25.00' dim). Runs after the xrefs so their layers exist; a layer the survey does not
+  // have is fine (nothing to hide) -- createOrUpdateLayer would otherwise try to CREATE "X-TOPO|..." and fail.
+  for (const layerName of options.freezeLayers ?? []) {
+    const name = `freeze ${layerName}`;
+    if (aborted) {
+      add(name, "SKIPPED", "an earlier step failed");
+      continue;
+    }
+    try {
+      const listed = (await send("listLayers", { name: layerName, includeXref: true })) as { layers?: Loose[] } | undefined;
+      const found = (listed?.layers ?? []).find((l) => String(l.name).toLowerCase() === layerName.toLowerCase());
+      if (!found) add(name, "OK", "not in this drawing (nothing to hide)");
+      else if (found.isFrozen === true) add(name, "OK", "already frozen");
+      else {
+        await send("createOrUpdateLayer", { name: layerName, frozen: true });
+        add(name, "OK", "frozen");
+      }
+    } catch (error) {
+      fail(name, error instanceof Error ? error.message : String(error));
+    }
   }
 
   // 4: alignment (step 8 -- pass style/labelSet up front so a separate set_style call isn't needed)
