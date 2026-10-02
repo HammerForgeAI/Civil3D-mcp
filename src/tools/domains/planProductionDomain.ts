@@ -29,6 +29,31 @@ const SheetDetailSchema = z.object({
 
 const GenericPlanProductionResponseSchema = z.object({}).passthrough();
 
+// View frames and match lines are Plan Production objects created in the Civil 3D user
+// interface. Autodesk's managed API does not expose a creation path for either, so these two
+// actions are read-only listers: they report what the drawing already has, and no create
+// action exists for them here.
+const ScalarPropertyValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const ScalarPropertiesSchema = z.record(z.string(), ScalarPropertyValueSchema);
+
+const ViewFrameSummarySchema = z.object({
+  name: z.string().nullable(),
+  handle: z.string(),
+  layer: z.string(),
+  groupHandle: z.string().nullable(),
+  groupName: z.string().nullable(),
+  properties: ScalarPropertiesSchema,
+});
+
+const MatchLineSummarySchema = z.object({
+  name: z.string().nullable(),
+  handle: z.string(),
+  layer: z.string(),
+  groupHandle: z.string().nullable(),
+  groupName: z.string().nullable(),
+  properties: ScalarPropertiesSchema,
+});
+
 const canonicalPlanProductionInputShape = {
   action: z.enum([
     "sheet_set_list",
@@ -42,6 +67,8 @@ const canonicalPlanProductionInputShape = {
     "sheet_view_set_scale",
     "sheet_publish_pdf",
     "sheet_set_export",
+    "view_frame_list",
+    "match_line_list",
   ]),
   name: z.string().optional(),
   description: z.string().optional(),
@@ -68,6 +95,7 @@ const canonicalPlanProductionInputShape = {
   overwrite: z.boolean().optional(),
   plotStyleTable: z.string().optional(),
   paperSize: z.string().optional(),
+  limit: z.number().int().positive().max(500).optional(),
 };
 
 const SheetSetListArgsSchema = z.object({
@@ -158,6 +186,16 @@ const SheetSetExportArgsSchema = z.object({
   outputPath: z.string(),
   overwrite: z.boolean().optional(),
   plotStyleTable: z.string().optional(),
+});
+
+const ViewFrameListArgsSchema = z.object({
+  action: z.literal("view_frame_list"),
+  limit: z.number().int().positive().max(500).optional(),
+});
+
+const MatchLineListArgsSchema = z.object({
+  action: z.literal("match_line_list"),
+  limit: z.number().int().positive().max(500).optional(),
 });
 
 export const PLAN_PRODUCTION_DOMAIN_DEFINITION: DomainToolDefinition = {
@@ -374,12 +412,36 @@ export const PLAN_PRODUCTION_DOMAIN_DEFINITION: DomainToolDefinition = {
         }),
       ),
     },
+    view_frame_list: {
+      action: "view_frame_list",
+      inputSchema: ViewFrameListArgsSchema,
+      responseSchema: z.object({ viewFrames: z.array(ViewFrameSummarySchema) }),
+      capabilities: ["query", "inspect"],
+      requiresActiveDrawing: true,
+      safeForRetry: true,
+      pluginMethods: ["listViewFrames"],
+      execute: async (args) => await withApplicationConnection(
+        async (appClient) => await appClient.sendCommand("listViewFrames", { limit: args.limit }),
+      ),
+    },
+    match_line_list: {
+      action: "match_line_list",
+      inputSchema: MatchLineListArgsSchema,
+      responseSchema: z.object({ matchLines: z.array(MatchLineSummarySchema) }),
+      capabilities: ["query", "inspect"],
+      requiresActiveDrawing: true,
+      safeForRetry: true,
+      pluginMethods: ["listMatchLines"],
+      execute: async (args) => await withApplicationConnection(
+        async (appClient) => await appClient.sendCommand("listMatchLines", { limit: args.limit }),
+      ),
+    },
   },
   exposures: [
     {
       toolName: "civil3d_plan_production",
       displayName: "Civil 3D Plan Production",
-      description: "Lists, creates, updates, and publishes Civil 3D sheet sets, sheets, plan/profile sheets, and sheet views through a single domain tool.",
+      description: "Lists, creates, updates, and publishes Civil 3D sheet sets, sheets, plan/profile sheets, and sheet views through a single domain tool. Also lists the plan-production view frames and match lines that already exist in the drawing (view_frame_list, match_line_list); Autodesk exposes no managed creation API for either object, so those two actions are read-only.",
       inputShape: canonicalPlanProductionInputShape,
       supportedActions: [
         "sheet_set_list",
@@ -393,6 +455,8 @@ export const PLAN_PRODUCTION_DOMAIN_DEFINITION: DomainToolDefinition = {
         "sheet_view_set_scale",
         "sheet_publish_pdf",
         "sheet_set_export",
+        "view_frame_list",
+        "match_line_list",
       ],
       resolveAction: (rawArgs) => ({ action: String(rawArgs.action ?? ""), args: rawArgs }),
     },

@@ -37,7 +37,8 @@ export type ToolDomain =
   | "plugin"
   | "xref"
   | "compare"
-  | "file";
+  | "file"
+  | "legend";
 
 export type ToolCapability =
   | "query"

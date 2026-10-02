@@ -4,6 +4,17 @@
 
 ### Added
 
+- New `civil3d_legend` domain: `read_legend_table`, `build_symbol_dictionary`
+  and `compare_legend_vs_drawing`, ported from DaniGhosy's legend command and
+  domain. `civil3d_plan_production` gains two read-only listers,
+  `view_frame_list` and `match_line_list`, with a limit cap and the owning
+  view-frame-group name and handle — `ViewFrame`, `ViewFrameGroup` and
+  `MatchLine` all resolve against the 2027 references, so item 10 survived its
+  abandon rule. `civil3d_qc` gains `check_legend`, appended after the five
+  existing `check_*` actions and `generate_report`, which are unchanged. The
+  donor's export, import and library-training actions are left out, because no
+  TypeScript path policy exists for caller-supplied files. These are items 10
+  and 11 of the community port.
 - New `civil3d_file` domain: `read_docx`, `read_xlsx`, `read_pptx`, `read_zip`
   (entry listing plus one text entry), and the legacy `read_doc` and `read_xls`
   through an OLE2/CFB and BIFF8 reader, ported from Jjo37's file-format readers.

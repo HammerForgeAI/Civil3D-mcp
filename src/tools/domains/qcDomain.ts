@@ -12,6 +12,7 @@ const canonicalQcInputShape = {
     "check_pipe_network",
     "check_surface",
     "generate_report",
+    "check_legend",
   ]),
   name: z.string().optional(),
   designSpeed: z.number().optional(),
@@ -37,6 +38,9 @@ const canonicalQcInputShape = {
   includePipeNetworks: z.boolean().optional(),
   includeSurfaces: z.boolean().optional(),
   includeLabels: z.boolean().optional(),
+  handle: z.string().optional(),
+  blockNames: z.array(z.string()).optional(),
+  limit: z.number().int().positive().max(2000).optional(),
 };
 
 const QcAlignmentArgsSchema = z.object({
@@ -88,6 +92,13 @@ const QcReportArgsSchema = z.object({
   includePipeNetworks: z.boolean().optional(),
   includeSurfaces: z.boolean().optional(),
   includeLabels: z.boolean().optional(),
+});
+
+const QcLegendArgsSchema = z.object({
+  action: z.literal("check_legend"),
+  handle: z.string().optional(),
+  blockNames: z.array(z.string()).optional(),
+  limit: z.number().int().positive().max(2000).optional(),
 });
 
 export const QC_DOMAIN_DEFINITION: DomainToolDefinition = {
@@ -196,12 +207,28 @@ export const QC_DOMAIN_DEFINITION: DomainToolDefinition = {
         }),
       ),
     },
+    check_legend: {
+      action: "check_legend",
+      inputSchema: QcLegendArgsSchema,
+      responseSchema: GenericQcResponseSchema,
+      capabilities: ["query", "analyze"],
+      requiresActiveDrawing: true,
+      safeForRetry: true,
+      pluginMethods: ["qcCheckLegend"],
+      execute: async (args) => await withApplicationConnection(
+        async (appClient) => await appClient.sendCommand("qcCheckLegend", {
+          handle: args.handle,
+          blockNames: args.blockNames,
+          limit: args.limit,
+        }),
+      ),
+    },
   },
   exposures: [
     {
       toolName: "civil3d_qc",
       displayName: "Civil 3D QC",
-      description: "Runs Civil 3D quality-control checks for alignments, profiles, corridors, pipe networks, surfaces, and consolidated QC reporting through a single domain tool.",
+      description: "Runs Civil 3D quality-control checks for alignments, profiles, corridors, pipe networks, surfaces, the drawing legend, and consolidated QC reporting through a single domain tool. check_legend compares the legend table's rows against the symbols the legend must describe — the block references present in model space, or an explicit blockNames list — and reports both the symbols no row describes and the rows nothing in the drawing matches.",
       inputShape: canonicalQcInputShape,
       supportedActions: [
         "check_alignment",
@@ -210,6 +237,7 @@ export const QC_DOMAIN_DEFINITION: DomainToolDefinition = {
         "check_pipe_network",
         "check_surface",
         "generate_report",
+        "check_legend",
       ],
       resolveAction: (rawArgs) => ({ action: String(rawArgs.action ?? ""), args: rawArgs }),
     },
