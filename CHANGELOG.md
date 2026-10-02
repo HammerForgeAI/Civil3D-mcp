@@ -4,6 +4,28 @@
 
 ### Added
 
+- `civil3d_health` carries an optional `environment` report from a reduced
+  preflight, ported from antonhofstader's Python environment checker (item 23)
+  and cut down to what this fork actually depends on and can detect: the Node
+  runtime against `engines.node`, whether the plugin port is occupied, the plugin
+  load state, an exists-and-writable check per configured `CIVIL3D_FILE_ROOTS`,
+  `CIVIL3D_IMPORT_ROOTS` and `CIVIL3D_EXPORT_ROOTS` root (an unset set reports the
+  plugin's Documents fallback), and the presence of the optional Docker CLI and
+  `@anthropic-ai/mcpb`. Each check reports `ok`, `warn` or `fail` with the value
+  it saw, and no existing health field was renamed or re-typed. The donor's
+  Python checks (fastmcp, pywin32, pythoncom, pythonnet, pydantic, 64-bit Python)
+  and its Claude-config component are not ported: there is no Python runtime
+  here, and the MCP server ships as the `.mcpb` extension, so the installer must
+  not write that config. The plugin-port and plugin-load checks appear only in a
+  report from a plugin that answered, because `civil3d_health` keeps its existing
+  connection error.
+- Windows packaging (item 24) gains `packaging/windows/Civil3DMcpInstaller.iss`,
+  ported from KevinGriffin's Inno Setup script: it installs `Civil3DMcp.bundle`
+  into the per-user `%APPDATA%\Autodesk\ApplicationPlugins`, denies the same six
+  Autodesk references as `scripts/install-bundle.ps1`, and writes
+  `PackageContents.xml` with series R26.0 and the DLL's file version. It needs no
+  elevation and adds no Start menu entry. The `.iss` was not compiled, because
+  Inno Setup runs only on Windows.
 - Escape hatches and multi-instance selection (items 1, 16 and 21).
   `civil3d_drawing` gains `send_command`, a mutating action with
   `safeForRetry: false`, which needs an approval token like any other mutation.
