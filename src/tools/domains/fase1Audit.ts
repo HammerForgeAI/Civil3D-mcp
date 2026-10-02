@@ -3,6 +3,11 @@
  * references/c300-water-sewer-plan.md section "Fase 1: definicion de terminado".) Read-only: composes plugin queries only.
  *
  * Kept free of MCP/zod imports so it can be unit-tested with a fake `send`.
+ *
+ * Item 19 note: this audit supplies no path to the plugin -- every method it calls is a read of the
+ * open drawing -- so there is no import call site here to gate. The gate lives at the import call
+ * sites in fase1Build.ts (template drawing, xrefs, block definitions) and is shared from
+ * `src/tools/importGate.ts`.
  */
 import { isPropText, stripMText } from "./fase1PropNotes.js";
 

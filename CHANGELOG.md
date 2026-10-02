@@ -4,6 +4,25 @@
 
 ### Added
 
+- `civil3d_survey` gains `fbk_parse` (also `civil3d_survey_fbk_parse`), ported
+  from KevinGriffin's field-book parser: NEZ points, setups, backsights and
+  azimuths, F1/F2 observations with target height, the field-book structure,
+  warnings, and the DMS-packed to decimal-degree derivation. **The FBK import is
+  not shipped**: it drives the AutoCAD `IMPORTFIELDBOOK` command and the Survey
+  COM API, version-pinned to Civil 3D 2026 through two Interop assemblies this
+  fork does not reference, and no reference was added. Figures are not exposed
+  either: the donor parser has no figure keyword and no figure collection, and
+  ships no `.fbk` sample, so there was no grammar to port or verify. Item 2.
+- Import gates for item 19 in `src/tools/importGate.ts`, wired at the three
+  `fase1Build` import sites: template (`.dwg`/`.dwt`), xrefs (`.dwg`) and block
+  definitions (`.dwg`). A path outside `CIVIL3D_IMPORT_ROOTS` (falling back to
+  `CIVIL3D_FILE_ROOTS`) is refused with `CIVIL3D.PATH_NOT_ALLOWED`, and a
+  disallowed extension with `CIVIL3D.FILE_TYPE_NOT_ALLOWED`; each refusal is
+  recorded as a FAIL and the command never reaches the plugin. `fase1Audit.ts`
+  has no import call site — all ten of its methods read the open drawing and its
+  argument schema has no path field — so the gate is documented there instead of
+  stubbed, and enforced in `fase1Build.ts` only. The gate is inert while no
+  import root is configured; the plugin's own boundary still applies.
 - `civil3d_geometry` gains block intelligence, shape detection and hatch
   creation, ported from DaniGhosy's block and shape commands and Jjo37's hatch
   command: `list_block_definitions`, `count_blocks_by_name`,

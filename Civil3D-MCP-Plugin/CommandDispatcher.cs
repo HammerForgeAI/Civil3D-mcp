@@ -391,6 +391,9 @@ public static class CommandDispatcher
       "createHatch" => HatchCommands.CreateHatchAsync(parameters),
       // P8 (item 29): per-stage telemetry for the health surface.
       "getCivil3DStageTelemetry" => StageTelemetryCommands.GetStageTelemetryAsync(),
+      // P4: survey field book (.fbk) parser. Parser only -- the AutoCAD IMPORTFIELDBOOK command and
+      // the Survey COM interop are deliberately not exposed anywhere in this plugin; see FbkCommands.cs.
+      "parseFbk" => FbkCommands.ParseFbkAsync(parameters),
       _ => throw new JsonRpcDispatchException("CIVIL3D.METHOD_NOT_FOUND", $"Plugin method '{method}' is not implemented yet."),
     };
   }
