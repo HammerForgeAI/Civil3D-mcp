@@ -357,6 +357,13 @@ public static class CommandDispatcher
       "importStm" => StmCommands.ImportStmAsync(parameters),
       "openStormSanitaryAnalysis" => StmCommands.OpenStormSanitaryAnalysisAsync(parameters),
       "listSsaCapabilities" => StmCommands.ListSsaCapabilitiesAsync(),
+      // P2 geometry: block intelligence (item 12), raw shape detection (item 13) and hatch creation (item 18)
+      "listBlockDefinitions" => BlockCommands.ListBlockDefinitionsAsync(),
+      "countBlocksByName" => BlockCommands.CountBlocksByNameAsync(parameters),
+      "detectParallelLinePairs" => ShapeDetectionCommands.DetectParallelLinePairsAsync(parameters),
+      "groupEntitiesByProximity" => ShapeDetectionCommands.GroupEntitiesByProximityAsync(parameters),
+      "getEntityExtendedData" => ShapeDetectionCommands.GetEntityExtendedDataAsync(parameters),
+      "createHatch" => HatchCommands.CreateHatchAsync(parameters),
       _ => throw new JsonRpcDispatchException("CIVIL3D.METHOD_NOT_FOUND", $"Plugin method '{method}' is not implemented yet."),
     };
   }
