@@ -2,8 +2,8 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 245
-- Domains: 29
+- Catalog entries: 248
+- Domains: 32
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
 |---|---|---|---|---|
@@ -29,7 +29,8 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_assembly_create` | assembly | — | createAssembly | no |
 | `civil3d_assembly_edit` | assembly | — | editAssembly | no |
 | `civil3d_subassembly_create` | assembly | — | createSubassembly | no |
-| `civil3d_coordinate_system` | coordinate_system | info, transform | getCoordinateSystemInfo, transformCoordinates | yes |
+| `civil3d_compare` | compare | drawing, snapshot, compare_snapshot | compareDrawings, writeDrawingSnapshot, compareDrawingSnapshot | no |
+| `civil3d_coordinate_system` | coordinate_system | info, set, transform | getCoordinateSystemInfo, setCoordinateSystem, transformCoordinates | no |
 | `civil3d_corridor` | corridor | list, get, rebuild, get_surfaces, get_feature_lines, compute_volumes, summary, target_mapping_get, target_mapping_set, region_add, region_delete | listCorridors, getCorridor, rebuildCorridor, getCorridorSurfaces, getCorridorFeatureLines, computeCorridorVolumes, getCorridorTargetMappings, setCorridorTargetMappings, addCorridorRegion, deleteCorridorRegion | no |
 | `civil3d_corridor_region_add` | corridor | — | addCorridorRegion | no |
 | `civil3d_corridor_region_delete` | corridor | — | deleteCorridorRegion | no |
@@ -49,7 +50,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `acad_list_open_documents` | drawing | — | listOpenDocuments | yes |
 | `acad_set_active_document` | drawing | — | setActiveDocument | no |
 | `acad_set_system_variable` | drawing | — | setSystemVariable | no |
-| `civil3d_drawing` | drawing | info, new, save, undo, redo, settings, selected_objects_info, list_object_types, list_open_documents, set_active_document, get_system_variable, set_system_variable | getDrawingInfo, newDrawing, saveDrawing, undoDrawing, redoDrawing, getDrawingSettings, getSelectedCivilObjectsInfo, listCivilObjectTypes, listOpenDocuments, setActiveDocument, getSystemVariable, setSystemVariable | no |
+| `civil3d_drawing` | drawing | info, new, save, undo, redo, settings, units, selected_objects_info, list_object_types, list_open_documents, set_active_document, get_system_variable, set_system_variable | getDrawingInfo, newDrawing, saveDrawing, undoDrawing, redoDrawing, getDrawingSettings, getDrawingUnits, getSelectedCivilObjectsInfo, listCivilObjectTypes, listOpenDocuments, setActiveDocument, getSystemVariable, setSystemVariable | no |
 | `get_drawing_info` | drawing | — | getDrawingInfo | yes |
 | `get_selected_civil_objects_info` | drawing | — | getSelectedCivilObjectsInfo | yes |
 | `list_civil_object_types` | drawing | — | listCivilObjectTypes | yes |
@@ -109,7 +110,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_stm` | hydrology | list_ssa_capabilities, export_stm, import_stm, open_storm_sanitary_analysis | listSsaCapabilities, exportStm, importStm, openStormSanitaryAnalysis | no |
 | `civil3d_time_of_concentration` | hydrology | list_tc_methods, calculate_tc, generate_hydrograph | listTcMethods, calculateTimeOfConcentration, generateHydrograph | yes |
 | `civil3d_job` | job | start, status, cancel | startJob, getJobStatus, cancelJob | no |
-| `civil3d_parcel` | parcel | list_sites, list, get, create, edit, lot_line_adjust, report | listParcelSites, listParcels, getParcel, createParcel, editParcel, adjustParcelLotLine, reportParcels | no |
+| `civil3d_parcel` | parcel | list_sites, list, get, get_geometry, create, edit, lot_line_adjust, report | listParcelSites, listParcels, getParcel, getParcelGeometry, createParcel, editParcel, adjustParcelLotLine, reportParcels | no |
 | `civil3d_parcel_create` | parcel | — | createParcel | no |
 | `civil3d_parcel_edit` | parcel | — | editParcel | no |
 | `civil3d_parcel_lot_line_adjust` | parcel | — | adjustParcelLotLine | no |
@@ -154,6 +155,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_sheet_set_title_block` | plan_production | — | setSheetTitleBlock | no |
 | `civil3d_sheet_view_create` | plan_production | — | createSheetView | no |
 | `civil3d_sheet_view_set_scale` | plan_production | — | setSheetViewScale | no |
+| `civil3d_plot` | plot | list_layouts, list_page_setups, list_plotters, plot_layouts_to_pdf, publish_sheet_set | plotListLayouts, plotListPageSetups, plotListPlotters, plotLayoutsToPdf, startJob, plotPublishSheetSet | no |
 | `civil3d_health` | plugin | — | getCivil3DHealth | yes |
 | `civil3d_point` | point | list, get, create, list_groups, import, delete, group_create, group_update, group_delete, export, transform | listCogoPoints, getCogoPoint, createCogoPoints, listPointGroups, importCogoPoints, deleteCogoPoints, createPointGroup, updatePointGroup, deletePointGroup, exportCogoPoints, transformCogoPoints | no |
 | `civil3d_point_export` | point | — | exportCogoPoints | yes |
@@ -182,7 +184,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_data_shortcut_promote` | project | — | promoteDataShortcut | no |
 | `civil3d_data_shortcut_reference` | project | — | referenceDataShortcut | no |
 | `civil3d_data_shortcut_sync` | project | — | syncDataShortcuts | no |
-| `civil3d_project` | project | data_shortcut_list, data_shortcut_create, data_shortcut_promote, data_shortcut_reference, data_shortcut_sync, data_shortcut_create_reference | listDataShortcuts, createDataShortcut, promoteDataShortcut, referenceDataShortcut, syncDataShortcuts, createDataShortcutReference | no |
+| `civil3d_project` | project | data_shortcut_list, data_shortcut_create, data_shortcut_promote, data_shortcut_reference, data_shortcut_sync, data_shortcut_create_reference, data_shortcut_references, data_shortcut_repair | listDataShortcuts, createDataShortcut, promoteDataShortcut, referenceDataShortcut, syncDataShortcuts, createDataShortcutReference, listDataShortcutReferences, repairDataShortcutReference | no |
 | `civil3d_qc` | qc | check_alignment, check_profile, check_corridor, check_pipe_network, check_surface, generate_report | qcCheckAlignment, qcCheckProfile, qcCheckCorridor, qcCheckPipeNetwork, qcCheckSurface, qcReportGenerate | no |
 | `civil3d_qc_check_alignment` | qc | — | qcCheckAlignment | yes |
 | `civil3d_qc_check_corridor` | qc | — | qcCheckCorridor | yes |
@@ -217,7 +219,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_standards` | standards | label_list, label_add, label_list_styles, style_list, style_get, lookup, check_labels, check_drawing_standards, fix_drawing_standards | listLabels, addLabel, listLabelStyles, listStyles, getStyle, qcCheckLabels, qcCheckDrawingStandards, qcFixDrawingStandards | no |
 | `civil3d_standards_lookup` | standards | — | — | yes |
 | `civil3d_style` | standards | list, get | listStyles, getStyle | yes |
-| `civil3d_surface` | surface | list, get, get_elevation, get_elevation_along, get_statistics, create, delete, add_points, add_breakline, add_boundary, extract_contours, compute_volume, volume_calculate, volume_report, volume_by_region, analyze_slope, analyze_elevation, analyze_directions, watershed_add, contour_interval_set, statistics_get, sample_elevations, create_from_dem, comparison_workflow, drainage_workflow | listSurfaces, getSurface, getSurfaceElevation, getSurfaceElevationsAlong, getSurfaceStatistics, createSurface, deleteSurface, addSurfacePoints, addSurfaceBreakline, addSurfaceBoundary, extractSurfaceContours, computeSurfaceVolume, calculateSurfaceVolume, getSurfaceVolumeReport, calculateSurfaceVolumeByRegion, analyzeSurfaceSlope, analyzeSurfaceElevation, analyzeSurfaceDirections, addSurfaceWatershed, setSurfaceContourInterval, getSurfaceStatisticsDetailed, sampleSurfaceElevations, createSurfaceFromDem, traceHydrologyFlowPath, estimateHydrologyRunoff | no |
+| `civil3d_surface` | surface | list, get, get_elevation, get_elevation_along, get_statistics, create, delete, add_points, add_breakline, add_boundary, extract_contours, compute_volume, volume_calculate, volume_report, volume_by_region, analyze_slope, analyze_elevation, analyze_directions, watershed_add, contour_interval_set, statistics_get, sample_elevations, get_tin_vertices, create_from_dem, comparison_workflow, drainage_workflow | listSurfaces, getSurface, getSurfaceElevation, getSurfaceElevationsAlong, getSurfaceStatistics, createSurface, deleteSurface, addSurfacePoints, addSurfaceBreakline, addSurfaceBoundary, extractSurfaceContours, computeSurfaceVolume, calculateSurfaceVolume, getSurfaceVolumeReport, calculateSurfaceVolumeByRegion, analyzeSurfaceSlope, analyzeSurfaceElevation, analyzeSurfaceDirections, addSurfaceWatershed, setSurfaceContourInterval, getSurfaceStatisticsDetailed, sampleSurfaceElevations, getSurfaceTinVertices, createSurfaceFromDem, traceHydrologyFlowPath, estimateHydrologyRunoff | no |
 | `civil3d_surface_analyze_directions` | surface | — | analyzeSurfaceDirections | yes |
 | `civil3d_surface_analyze_elevation` | surface | — | analyzeSurfaceElevation | yes |
 | `civil3d_surface_analyze_slope` | surface | — | analyzeSurfaceSlope | yes |
@@ -252,3 +254,4 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_workflow_project_startup` | workflow | — | projectStartupWorkflow | no |
 | `civil3d_workflow_qc_fix_and_verify` | workflow | — | qcFixAndVerifyWorkflow | no |
 | `civil3d_workflow_surface_comparison_report` | workflow | — | surfaceComparisonReportWorkflow | yes |
+| `civil3d_xref` | xref | list, attach, overlay, detach, reload, unload, bind, repath | listXrefs, attachXref, overlayXref, detachXrefs, reloadXrefs, unloadXrefs, bindXrefs, repathXref | no |
