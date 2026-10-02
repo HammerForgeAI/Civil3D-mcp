@@ -2,8 +2,8 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 250
-- Domains: 33
+- Catalog entries: 251
+- Domains: 34
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
 |---|---|---|---|---|
@@ -111,6 +111,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_stm` | hydrology | list_ssa_capabilities, export_stm, import_stm, open_storm_sanitary_analysis | listSsaCapabilities, exportStm, importStm, openStormSanitaryAnalysis | no |
 | `civil3d_time_of_concentration` | hydrology | list_tc_methods, calculate_tc, generate_hydrograph | listTcMethods, calculateTimeOfConcentration, generateHydrograph | yes |
 | `civil3d_job` | job | start, status, cancel | startJob, getJobStatus, cancelJob | no |
+| `civil3d_legend` | legend | read_legend_table, build_symbol_dictionary, compare_legend_vs_drawing | readLegendTable | yes |
 | `civil3d_parcel` | parcel | list_sites, list, get, get_geometry, create, edit, lot_line_adjust, report | listParcelSites, listParcels, getParcel, getParcelGeometry, createParcel, editParcel, adjustParcelLotLine, reportParcels | no |
 | `civil3d_parcel_create` | parcel | — | createParcel | no |
 | `civil3d_parcel_edit` | parcel | — | editParcel | no |
@@ -144,7 +145,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_pressure_pipe_add` | pipe | — | addPressurePipe | no |
 | `civil3d_pressure_pipe_get_properties` | pipe | — | getPressurePipeProperties | yes |
 | `civil3d_pressure_pipe_resize` | pipe | — | resizePressurePipe | no |
-| `civil3d_plan_production` | plan_production | sheet_set_list, sheet_set_get_info, sheet_set_create, sheet_add, sheet_get_properties, sheet_set_title_block, plan_profile_sheet_update_alignment, sheet_view_create, sheet_view_set_scale, sheet_publish_pdf, sheet_set_export | listSheetSets, getSheetSetInfo, createSheetSet, addSheet, getSheetProperties, setSheetTitleBlock, updatePlanProfileSheetAlignment, createSheetView, setSheetViewScale, publishSheetPdf, exportSheetSet | no |
+| `civil3d_plan_production` | plan_production | sheet_set_list, sheet_set_get_info, sheet_set_create, sheet_add, sheet_get_properties, sheet_set_title_block, plan_profile_sheet_update_alignment, sheet_view_create, sheet_view_set_scale, sheet_publish_pdf, sheet_set_export, view_frame_list, match_line_list | listSheetSets, getSheetSetInfo, createSheetSet, addSheet, getSheetProperties, setSheetTitleBlock, updatePlanProfileSheetAlignment, createSheetView, setSheetViewScale, publishSheetPdf, exportSheetSet, listViewFrames, listMatchLines | no |
 | `civil3d_plan_profile_sheet_update_alignment` | plan_production | — | updatePlanProfileSheetAlignment | no |
 | `civil3d_sheet_add` | plan_production | — | addSheet | no |
 | `civil3d_sheet_get_properties` | plan_production | — | getSheetProperties | yes |
@@ -186,7 +187,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_data_shortcut_reference` | project | — | referenceDataShortcut | no |
 | `civil3d_data_shortcut_sync` | project | — | syncDataShortcuts | no |
 | `civil3d_project` | project | data_shortcut_list, data_shortcut_create, data_shortcut_promote, data_shortcut_reference, data_shortcut_sync, data_shortcut_create_reference, data_shortcut_references, data_shortcut_repair | listDataShortcuts, createDataShortcut, promoteDataShortcut, referenceDataShortcut, syncDataShortcuts, createDataShortcutReference, listDataShortcutReferences, repairDataShortcutReference | no |
-| `civil3d_qc` | qc | check_alignment, check_profile, check_corridor, check_pipe_network, check_surface, generate_report | qcCheckAlignment, qcCheckProfile, qcCheckCorridor, qcCheckPipeNetwork, qcCheckSurface, qcReportGenerate | no |
+| `civil3d_qc` | qc | check_alignment, check_profile, check_corridor, check_pipe_network, check_surface, generate_report, check_legend | qcCheckAlignment, qcCheckProfile, qcCheckCorridor, qcCheckPipeNetwork, qcCheckSurface, qcReportGenerate, qcCheckLegend | no |
 | `civil3d_qc_check_alignment` | qc | — | qcCheckAlignment | yes |
 | `civil3d_qc_check_corridor` | qc | — | qcCheckCorridor | yes |
 | `civil3d_qc_check_pipe_network` | qc | — | qcCheckPipeNetwork | yes |

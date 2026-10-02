@@ -4,6 +4,19 @@
 
 ### Added
 
+- New `civil3d_object` domain for generic Civil 3D object introspection:
+  `list_types` (the types present in the drawing, with counts), `get_properties`,
+  `list_properties`, `set_properties` and `find_by_property`. The donor's raw
+  reflection is **not** ported: every read and write goes through the existing
+  boundary (`Civil3DCompatibility.GetPropertyValue`,
+  `GetReadableScalarProperties`, `TrySetProperty`), so the reflection-boundary
+  test still passes. A curated allow-list per object type is applied before any
+  read, and surface types get one short property set plus a note, never a full
+  sweep, because the donor records `get_properties` on a `TinSurface` hanging for
+  120 s. The four inline handle resolutions in `AcadCommands.cs` now call one
+  shared `CivilObjectUtils.ResolveHandle`; `LabelCommands.ResolveHandle` stays,
+  because it resolves the other way (object id to handle). This is item 14 of the
+  community port.
 - New `civil3d_legend` domain: `read_legend_table`, `build_symbol_dictionary`
   and `compare_legend_vs_drawing`, ported from DaniGhosy's legend command and
   domain. `civil3d_plan_production` gains two read-only listers,
