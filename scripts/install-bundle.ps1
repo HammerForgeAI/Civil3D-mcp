@@ -97,6 +97,13 @@ foreach ($f in Get-ChildItem $SourceDir -File) {
   $copied++
 }
 
+# The Roslyn script host (P11) ships satellite resource folders beside its
+# assemblies, one per language. The file loop above skips directories, so copy
+# them too, or the deployed bundle would not match the build output.
+foreach ($d in Get-ChildItem $SourceDir -Directory) {
+  Copy-Item $d.FullName -Destination $contents -Recurse -Force
+}
+
 $appVersion = (Get-Item $dll).VersionInfo.FileVersion
 if (-not $appVersion) { $appVersion = "1.0.0.0" }
 
