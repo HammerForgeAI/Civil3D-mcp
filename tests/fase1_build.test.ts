@@ -258,6 +258,25 @@ describe("fase1 build", () => {
     expect(bad.detail ?? "").toContain("ALGN START");
   });
 
+  it("draws MLeader stand-ins for the plan labels the plugin could not create (template without the style) instead of aborting", async () => {
+    const labels = [
+      { type: "NoteLabel", style: "EOP", anchor: { x: 1, y: 2 } },
+      { type: "NoteLabel", style: "RW", anchor: { x: 3, y: 4 } },
+    ];
+    const fallback = [{ kind: "mleader", text: "EOP", leaderX: 1, leaderY: 2 }, { kind: "mleader", text: "EXIST R/W", leaderX: 3, leaderY: 4 }];
+    const log: Call[] = [];
+    const steps = await runFase1Build(fakePlugin({ ...happyResponses, profileViewApplyAnnotations: { createdLabels: 1, failedLabels: 1, labels: [{ index: 0, handle: "AB" }, { index: 1, error: "style 'RW' not found" }] } }, log), {
+      expectedDocument: "PROJECT FASE 1.dwg", planLabels: labels, planLabelsFallback: fallback as never, save: false,
+    });
+    const batches = log.filter((c) => c.method === "createEntities");
+    expect(batches).toHaveLength(1);
+    expect(batches[0].params.entities).toEqual([fallback[1]]); // only the label that failed
+    const step = steps.find((s) => s.name === "apply 2 plan labels")!;
+    expect(step.status).toBe("OK");
+    expect(step.detail).toContain("WARN");
+    expect(steps.some((s) => s.status === "FAIL")).toBe(false);
+  });
+
   it("skips the block import when no matching block entity is in the batch, and still builds the rest", async () => {
     const log: Call[] = [];
     const steps = await runFase1Build(fakePlugin(happyResponses, log), {

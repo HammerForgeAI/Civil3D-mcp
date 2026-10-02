@@ -97,6 +97,11 @@ export interface Fase1BuildOptions {
    * start/end notes. Applied right after the entity batch through profileViewApplyAnnotations WITHOUT profileViewName (the styles must exist in the template).
    */
   planLabels?: Array<Record<string, unknown>>;
+  /**
+   * Same length and order as planLabels: the MLeader (create_entities shape) that stands in for each native label. Used ONLY for the labels the plugin
+   * could not create (typically a template without the label style): they are drawn as MLeaders instead of aborting the build half-way.
+   */
+  planLabelsFallback?: Fase1BuildEntity[];
   layers?: Record<string, unknown>;
   /** Xref layers to freeze after attaching the xrefs (e.g. "X-TOPO|DIM": the survey's own R/W dims that duplicate the sheet's). */
   freezeLayers?: string[];
@@ -338,14 +343,40 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
     });
   }
 
-  // 6b: native plan labels (EOP / EXIST R/W notes + alignment start/end station-offset labels). One call; a label that failed makes the step fail.
-  if (options.planLabels?.length) {
-    const result = await call(`apply ${options.planLabels.length} plan labels`, "profileViewApplyAnnotations", { labels: options.planLabels });
-    const failed = Number(result?.failedLabels ?? 0);
-    if (result && failed > 0) {
-      const first = (Array.isArray(result.labels) ? (result.labels as Loose[]) : []).find((l) => typeof l.error === "string");
-      fail(`plan labels: ${failed} of ${options.planLabels.length} failed`, `first: #${String(first?.index ?? "?")} ${String(first?.error ?? "unknown error")}`);
+  // 6b: native plan labels (EOP / EXIST R/W notes + alignment start/end station-offset labels). One call. A label the plugin could not create (e.g. the
+  // template lacks its style) is drawn as its MLeader stand-in when planLabelsFallback is given (WARN); otherwise the step fails.
+  if (options.planLabels?.length && !aborted) {
+    const total = options.planLabels.length;
+    const name = `apply ${total} plan labels`;
+    let result: Loose | undefined;
+    let problem: string | undefined;
+    let failedIdx: number[] = [];
+    try {
+      result = (await send("profileViewApplyAnnotations", { labels: options.planLabels })) as Loose | undefined;
+      const entries = Array.isArray(result?.labels) ? (result!.labels as Loose[]) : [];
+      failedIdx = entries.filter((l) => typeof l.error === "string").map((l) => Number(l.index));
+      if (failedIdx.length) problem = `first: #${failedIdx[0]} ${String(entries.find((l) => typeof l.error === "string")?.error ?? "unknown error")}`;
+    } catch (error) {
+      problem = error instanceof Error ? error.message : String(error);
+      failedIdx = options.planLabels.map((_, i) => i);
     }
+    if (!problem) {
+      add(name, "OK", summarize("profileViewApplyAnnotations", result));
+    } else {
+      const stand = failedIdx.map((i) => options.planLabelsFallback?.[i]).filter((e): e is Fase1BuildEntity => !!e);
+      if (stand.length === failedIdx.length && stand.length > 0) {
+        try {
+          await send("createEntities", { entities: stand, layers: options.layers, space: options.entitySpace, layout: options.entityLayout });
+          add(name, "OK", `WARN: ${failedIdx.length} of ${total} native labels failed (${problem}); drew ${stand.length} MLeader stand-in(s) instead`);
+        } catch (error) {
+          fail(`plan labels: ${failedIdx.length} of ${total} failed`, `${problem}; MLeader fallback also failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      } else {
+        fail(`plan labels: ${failedIdx.length} of ${total} failed`, problem);
+      }
+    }
+  } else if (options.planLabels?.length) {
+    add(`apply ${options.planLabels.length} plan labels`, "SKIPPED", "an earlier step failed");
   }
 
   // 7: viewport + Model-tab twist (steps 11 and 11b -- pass both in `twists`; without viewportHandle
