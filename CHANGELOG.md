@@ -2,10 +2,8 @@
 
 ## Unreleased
 
-<<<<<<< HEAD
 ### Fixed
 
-<<<<<<< HEAD
 - Style lookups by name never matched on Civil 3D 2027, so a requested style
   was silently replaced by the drawing's first one: `create_layout` with style
   "Design Profile" got "Existing Ground Profile", and `view_create` with style
@@ -75,12 +73,9 @@
 - `scripts/install-bundle.ps1` deploys the plugin as an ApplicationPlugins
   bundle, which auto-loads under the default `SECURELOAD=1` policy that rejects
   Startup Suite entries outside `TRUSTEDPATHS`.
-=======
 - With no document open, drawing-dependent requests hung and wedged the
   plugin's execution gate; they now fail fast with `CIVIL3D.NO_DRAWING`, and
   `civil3d_drawing new` works from zero documents.
->>>>>>> refs/remotes/upstream/pr/8
-=======
 ### Added
 
 - `civil3d_plot` domain tool (plugin `PlotCommands.cs`): `list_layouts`,
@@ -97,7 +92,6 @@
 - `CivilExecution.ExecuteCommandSequenceAsync` for host work that issues
   AutoCAD commands; it keeps the `CIVIL3D.NO_DRAWING` check and the
   drawing-identity check but opens no transaction around the command.
->>>>>>> refs/remotes/upstream/pr/17
 
 ## v1.2.1 — 2026-07-14
 
