@@ -57,6 +57,22 @@
 - `civil3d_profile get` reported symmetric parabolas as `asymmetric_parabola`
   ("parabolasymmetric" contains "asymmetric"); they are now
   `symmetric_parabola`. The response schema still accepts the old `parabola`.
+- `civil3d_drawing` `settings` failed response validation on every drawing:
+  the plugin reports `defaultStyles.corridor` as `null` unconditionally (Civil
+  3D exposes no corridor style collection) and the schema rejected `null`. The
+  five `defaultStyles` fields are now `string | null`, with regression tests.
+- `docs:check` and `version:check` reported generated files as stale on any
+  Windows clone with `core.autocrlf=true`; comparisons now ignore CRLF/LF.
+
+### Added
+
+- Civil 3D 2027 build path: `scripts/gather-refs-2027.ps1` stages the six
+  managed references (spread across three folders in a 2027 install) and
+  `scripts/build-2027.ps1` builds with a `net10.0-windows` override — Civil 3D
+  2027's assemblies target .NET 10 — without changing the 2026 default.
+- `scripts/install-bundle.ps1` deploys the plugin as an ApplicationPlugins
+  bundle, which auto-loads under the default `SECURELOAD=1` policy that rejects
+  Startup Suite entries outside `TRUSTEDPATHS`.
 
 ## v1.2.1 — 2026-07-14
 
