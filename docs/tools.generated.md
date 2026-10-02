@@ -2,7 +2,7 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 259
+- Catalog entries: 260
 - Domains: 35
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
@@ -245,8 +245,9 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_surface_volume_calculate` | surface | — | calculateSurfaceVolume | yes |
 | `civil3d_surface_volume_report` | surface | — | getSurfaceVolumeReport | yes |
 | `civil3d_surface_watershed_add` | surface | — | addSurfaceWatershed | no |
-| `civil3d_survey` | survey | database_list, figure_list, figure_get, observation_list | listSurveyDatabases, listSurveyFigures, getSurveyFigure, listSurveyObservations | yes |
+| `civil3d_survey` | survey | database_list, figure_list, figure_get, observation_list, fbk_parse | listSurveyDatabases, listSurveyFigures, getSurveyFigure, listSurveyObservations, parseFbk | yes |
 | `civil3d_survey_database_list` | survey | — | listSurveyDatabases | yes |
+| `civil3d_survey_fbk_parse` | survey | — | parseFbk | yes |
 | `civil3d_survey_figure_get` | survey | — | getSurveyFigure | yes |
 | `civil3d_survey_figure_list` | survey | — | listSurveyFigures | yes |
 | `civil3d_survey_observation_list` | survey | — | listSurveyObservations | yes |
