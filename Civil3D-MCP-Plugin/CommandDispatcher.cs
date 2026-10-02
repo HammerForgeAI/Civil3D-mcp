@@ -45,6 +45,7 @@ public static class CommandDispatcher
       "setViewportTwist" => DimensionViewportCommands.SetViewportTwistAsync(parameters),
       "createEntities" => DraftingBatchCommands.CreateEntitiesAsync(parameters),
       "moveEntities" => DraftingBatchCommands.MoveEntitiesAsync(parameters),
+      "selectEntities" => DraftingBatchCommands.SelectEntitiesAsync(parameters),
       "listLayouts" => LayoutCommands.ListLayoutsAsync(),
       "createLayout" => LayoutCommands.CreateLayoutAsync(parameters),
       "copyLayout" => LayoutCommands.CopyLayoutAsync(parameters),

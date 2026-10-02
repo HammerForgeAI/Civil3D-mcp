@@ -2,7 +2,7 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 244
+- Catalog entries: 245
 - Domains: 29
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
@@ -76,6 +76,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `acad_list_viewports` | geometry | — | listViewports | yes |
 | `acad_move_entities` | geometry | — | moveEntities | no |
 | `acad_purge_unused` | geometry | — | purgeUnused | no |
+| `acad_select_entities` | geometry | — | selectEntities | yes |
 | `acad_set_viewport_twist` | geometry | — | setViewportTwist | no |
 | `acad_update_block_reference` | geometry | — | updateBlockReference | no |
 | `acad_update_text_content` | geometry | — | updateTextContent | no |

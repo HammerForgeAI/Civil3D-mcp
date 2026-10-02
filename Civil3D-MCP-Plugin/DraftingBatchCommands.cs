@@ -1,7 +1,10 @@
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using System.Text.Json.Nodes;
+using App = Autodesk.AutoCAD.ApplicationServices.Application;
 
 namespace Civil3DMcpPlugin;
 
@@ -173,6 +176,95 @@ public static class DraftingBatchCommands
       }
 
       return new Dictionary<string, object?> { ["movedCount"] = moved.Count, ["moved"] = moved, ["dx"] = displacement.X, ["dy"] = displacement.Y };
+    });
+  }
+
+  // selectEntities: leaves the entities SELECTED (implied selection = the grips / highlight the user sees, ready for a command) and zooms the
+  // model view onto them. Read-only: nothing in the drawing changes. Switches to the Model tab when the active layout is a paper layout.
+  public static Task<object?> SelectEntitiesAsync(JsonObject? parameters)
+  {
+    if (PluginRuntime.GetParameter(parameters, "handles") is not JsonArray handles || handles.Count == 0)
+    {
+      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "selectEntities requires a non-empty 'handles' array.");
+    }
+
+    var zoom = PluginRuntime.GetOptionalBool(parameters, "zoom") ?? true;
+    var margin = Math.Max(1.0, PluginRuntime.GetOptionalDouble(parameters, "zoomMargin") ?? 1.5);
+    return CivilExecution.ReadAsync<object?>((doc, civilDoc, database, transaction) =>
+    {
+      var ids = new List<ObjectId>();
+      var missing = new List<string>();
+      Extents3d? box = null;
+      foreach (var node in handles)
+      {
+        var text = node?.GetValue<string>() ?? string.Empty;
+        long value;
+        try { value = Convert.ToInt64(text, 16); }
+        catch (System.Exception ex) when (ex is FormatException or OverflowException or ArgumentException)
+        {
+          throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"Handle '{text}' is not a valid hexadecimal handle.");
+        }
+
+        var id = database.GetObjectId(false, new Handle(value), 0);
+        if (id.IsNull || id.IsErased) { missing.Add(text); continue; }
+        ids.Add(id);
+        if (transaction.GetObject(id, OpenMode.ForRead) is Entity entity)
+        {
+          try
+          {
+            var extents = entity.GeometricExtents;
+            if (box.HasValue) { var merged = box.Value; merged.AddExtents(extents); box = merged; } else { box = extents; }
+          }
+          catch (Autodesk.AutoCAD.Runtime.Exception) { /* entities without extents are still selected */ }
+        }
+      }
+
+      if (ids.Count == 0)
+      {
+        throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", "None of the handles exist in the active drawing.");
+      }
+
+      var editor = doc.Editor;
+      var zoomed = false;
+      if (zoom && box.HasValue)
+      {
+        if (Convert.ToInt32(App.GetSystemVariable("TILEMODE")) == 0) App.SetSystemVariable("TILEMODE", 1);   // Model tab
+        var view = editor.GetCurrentView();
+        // WCS -> DCS (Kean Walmsley's recipe): the Model tab is usually twisted (the street runs horizontally on the sheet)
+        var toDcs = Matrix3d.PlaneToWorld(view.ViewDirection);
+        toDcs = Matrix3d.Displacement(view.Target - Point3d.Origin) * toDcs;
+        toDcs = Matrix3d.Rotation(-view.ViewTwist, view.ViewDirection, view.Target) * toDcs;
+        toDcs = toDcs.Inverse();
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        var lo = box.Value.MinPoint; var hi = box.Value.MaxPoint;
+        foreach (var x in new[] { lo.X, hi.X })
+          foreach (var y in new[] { lo.Y, hi.Y })
+          {
+            var p = new Point3d(x, y, lo.Z).TransformBy(toDcs);
+            minX = Math.Min(minX, p.X); maxX = Math.Max(maxX, p.X); minY = Math.Min(minY, p.Y); maxY = Math.Max(maxY, p.Y);
+          }
+
+        var aspect = view.Width / view.Height;
+        var width = Math.Max((maxX - minX) * margin, 20d);
+        var height = Math.Max((maxY - minY) * margin, 20d);
+        if (width / height > aspect) height = width / aspect; else width = height * aspect;
+        view.CenterPoint = new Point2d((minX + maxX) / 2, (minY + maxY) / 2);
+        view.Width = width;
+        view.Height = height;
+        editor.SetCurrentView(view);
+        zoomed = true;
+      }
+
+      editor.SetImpliedSelection(ids.ToArray());
+      editor.UpdateScreen();
+      return new Dictionary<string, object?>
+      {
+        ["selected"] = ids.Count,
+        ["missing"] = missing,
+        ["zoomed"] = zoomed,
+        ["extents"] = box.HasValue ? new Dictionary<string, object?> { ["minX"] = box.Value.MinPoint.X, ["minY"] = box.Value.MinPoint.Y, ["maxX"] = box.Value.MaxPoint.X, ["maxY"] = box.Value.MaxPoint.Y } : null,
+        ["document"] = doc.Name,
+      };
     });
   }
 
