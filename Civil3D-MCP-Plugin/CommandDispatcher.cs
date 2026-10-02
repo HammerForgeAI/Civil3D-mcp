@@ -357,6 +357,14 @@ public static class CommandDispatcher
       "importStm" => StmCommands.ImportStmAsync(parameters),
       "openStormSanitaryAnalysis" => StmCommands.OpenStormSanitaryAnalysisAsync(parameters),
       "listSsaCapabilities" => StmCommands.ListSsaCapabilitiesAsync(),
+      // P7: civil3d_file (Office and archive readers, raster image attach)
+      "readDocx" => FileFormatCommands.ReadDocxAsync(parameters),
+      "readXlsx" => FileFormatCommands.ReadXlsxAsync(parameters),
+      "readPptx" => FileFormatCommands.ReadPptxAsync(parameters),
+      "readZip" => FileFormatCommands.ReadZipAsync(parameters),
+      "readDoc" => FileFormatCommands.ReadDocAsync(parameters),
+      "readXls" => FileFormatCommands.ReadXlsAsync(parameters),
+      "attachRasterImage" => RasterImageCommands.AttachRasterImageAsync(parameters),
       _ => throw new JsonRpcDispatchException("CIVIL3D.METHOD_NOT_FOUND", $"Plugin method '{method}' is not implemented yet."),
     };
   }

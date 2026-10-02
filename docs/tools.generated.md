@@ -2,8 +2,8 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 248
-- Domains: 32
+- Catalog entries: 249
+- Domains: 33
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
 |---|---|---|---|---|
@@ -54,6 +54,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `get_drawing_info` | drawing | — | getDrawingInfo | yes |
 | `get_selected_civil_objects_info` | drawing | — | getSelectedCivilObjectsInfo | yes |
 | `list_civil_object_types` | drawing | — | listCivilObjectTypes | yes |
+| `civil3d_file` | file | read_docx, read_xlsx, read_pptx, read_zip, read_doc, read_xls, attach_raster_image | readDocx, readXlsx, readPptx, readZip, readDoc, readXls, attachRasterImage | no |
 | `acad_attach_xref` | geometry | — | attachXref, overlayXref | no |
 | `acad_audit_drawing` | geometry | — | auditDrawing | no |
 | `acad_create_3dpolyline` | geometry | — | create3dPolyline | no |
