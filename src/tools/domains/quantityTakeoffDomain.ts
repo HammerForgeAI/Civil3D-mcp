@@ -1,6 +1,9 @@
 import { z } from "zod";
-import { withApplicationConnection } from "../../utils/ConnectionManager.js";
+import { withApplicationConnection, type ApplicationCommandClient } from "../../utils/ConnectionManager.js";
+import { resolveExportPath, writeExportFileAtomic } from "../../utils/exportPathBoundary.js";
+import { Civil3DRpcError } from "../../utils/SocketClient.js";
 import type { DomainToolDefinition } from "../domainRuntime.js";
+import { BOQ_SHEET_NAME, buildQuantityTakeoffWorkbook, type QuantityXlsxRow } from "./quantityXlsx.js";
 
 const GenericResponseSchema = z.object({}).passthrough();
 const RegionSchema = z.array(z.object({ x: z.number(), y: z.number() }));
@@ -16,8 +19,255 @@ const QtyPointCountByGroupArgs = z.object({ action: z.literal("point_count_by_gr
 const QtyExportToCsvArgs = z.object({ action: z.literal("export_to_csv"), outputPath: z.string(), overwrite: z.boolean().optional(), includeCorridorVolumes: z.boolean().optional(), includeSurfaceVolumes: z.boolean().optional(), includePipeNetworks: z.boolean().optional(), includePressureNetworks: z.boolean().optional(), includeParcelAreas: z.boolean().optional(), includeAlignmentLengths: z.boolean().optional(), corridorName: z.string().optional(), baseSurface: z.string().optional(), comparisonSurface: z.string().optional() });
 const QtyEarthworkSummaryArgs = z.object({ action: z.literal("earthwork_summary"), baseSurface: z.string(), designSurface: z.string(), alignmentName: z.string().optional(), startStation: z.number().optional(), endStation: z.number().optional(), stationInterval: z.number().positive().optional() });
 
+/**
+ * Sections the .xlsx export can assemble from the commands this domain already exposes. Each
+ * section reads exactly one existing takeoff action, so the export reuses the quantity engine
+ * instead of re-implementing it. Corridor volumes are absent on purpose: the managed API exposes
+ * them only through sample-line-group QTO material lists, which no command of this fork serves.
+ */
+const XLSX_SECTIONS = [
+  { flag: "includeSurfaceVolumes", label: "Surface Volumes" },
+  { flag: "includeAlignmentLengths", label: "Alignments" },
+  { flag: "includePipeNetworks", label: "Pipe Networks" },
+  { flag: "includePressureNetworks", label: "Pressure Networks" },
+  { flag: "includeParcelAreas", label: "Parcel Areas" },
+  { flag: "includePointCounts", label: "Point Counts" },
+] as const;
+
+const QtyExportToXlsxArgs = z.object({
+  action: z.literal("export_to_xlsx"),
+  outputPath: z.string(),
+  overwrite: z.boolean().optional(),
+  sheetName: z.string().min(1).max(31).optional(),
+  includeSurfaceVolumes: z.boolean().optional(),
+  baseSurface: z.string().optional(),
+  comparisonSurface: z.string().optional(),
+  corridorName: z.string().optional(),
+  region: RegionSchema.optional(),
+  includeAlignmentLengths: z.boolean().optional(),
+  alignmentNames: z.array(z.string()).optional(),
+  includePipeNetworks: z.boolean().optional(),
+  pipeNetworkNames: z.array(z.string()).optional(),
+  includePressureNetworks: z.boolean().optional(),
+  pressureNetworkNames: z.array(z.string()).optional(),
+  includeParcelAreas: z.boolean().optional(),
+  siteName: z.string().optional(),
+  parcelNames: z.array(z.string()).optional(),
+  includePointCounts: z.boolean().optional(),
+  groupNames: z.array(z.string()).optional(),
+}).superRefine((value, ctx) => {
+  if (XLSX_SECTIONS.every((section) => value[section.flag] !== true)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `At least one takeoff section is required: ${XLSX_SECTIONS.map((section) => section.flag).join(", ")}.`,
+      path: ["action"],
+    });
+  }
+  if (value.includeSurfaceVolumes === true && (value.baseSurface == null || value.comparisonSurface == null)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "baseSurface and comparisonSurface are required when includeSurfaceVolumes is true.", path: ["baseSurface"] });
+  }
+  if (value.includePipeNetworks === true && (value.pipeNetworkNames?.length ?? 0) === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "pipeNetworkNames is required when includePipeNetworks is true.", path: ["pipeNetworkNames"] });
+  }
+  if (value.includePressureNetworks === true && (value.pressureNetworkNames?.length ?? 0) === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "pressureNetworkNames is required when includePressureNetworks is true.", path: ["pressureNetworkNames"] });
+  }
+});
+
+const QtyExportToXlsxResponseSchema = z.object({
+  outputPath: z.string(),
+  sheetName: z.string(),
+  rowsWritten: z.number().int().nonnegative(),
+  sectionsIncluded: z.array(z.string()),
+});
+
+type QtyExportToXlsxArgsValue = z.infer<typeof QtyExportToXlsxArgs>;
+
+function asRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    : [];
+}
+
+/** A collection the command must have returned; an absent one is an API error, never zero rows. */
+function requireCollection(response: unknown, key: string, command: string): Record<string, unknown>[] {
+  const value = response === null || typeof response !== "object" ? undefined : (response as Record<string, unknown>)[key];
+  if (!Array.isArray(value)) {
+    throw new Civil3DRpcError(
+      `Command '${command}' did not return a '${key}' array, so this section had no data to export.`,
+      "CIVIL3D.API_ERROR",
+      -32000,
+    );
+  }
+  return asRecords(value);
+}
+
+/** A quantity the command must have returned; a missing number is an API error, not a zero. */
+function requireNumber(record: unknown, key: string, description: string): number {
+  const value = record === null || typeof record !== "object" ? undefined : (record as Record<string, unknown>)[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Civil3DRpcError(
+      `Could not read ${description} from the plugin response. Zero was not substituted.`,
+      "CIVIL3D.API_ERROR",
+      -32000,
+    );
+  }
+  return value;
+}
+
+function optionalNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function optionalText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+function joinDetail(parts: (string | null)[]): string | null {
+  const present = parts.filter((part): part is string => part !== null);
+  return present.length > 0 ? present.join("; ") : null;
+}
+
+function stationRangeText(from: unknown, to: unknown): string | null {
+  const start = optionalNumber(from);
+  const end = optionalNumber(to);
+  return start !== null && end !== null ? `stations ${start.toFixed(3)} to ${end.toFixed(3)}` : null;
+}
+
+function pipeCountText(response: unknown): string | null {
+  const count = optionalNumber(response === null || typeof response !== "object" ? undefined : (response as Record<string, unknown>).pipeCount);
+  return count !== null ? `${count} pipes` : null;
+}
+
+/**
+ * Assembles the BOQ rows from the same commands the per-section takeoff actions use. The plugin
+ * keeps the quantity engine; this function only turns its answers into rows.
+ */
+async function assembleQuantityXlsxRows(
+  args: QtyExportToXlsxArgsValue,
+  appClient: ApplicationCommandClient,
+): Promise<{ rows: QuantityXlsxRow[]; sectionsIncluded: string[] }> {
+  const rows: QuantityXlsxRow[] = [];
+  const sectionsIncluded: string[] = [];
+
+  if (args.includeSurfaceVolumes === true) {
+    const response = await appClient.sendCommand("qtySurfaceVolume", {
+      baseSurface: args.baseSurface,
+      comparisonSurface: args.comparisonSurface,
+      corridorName: args.corridorName ?? null,
+      region: args.region ?? null,
+    });
+    const pair = `${args.baseSurface} vs ${args.comparisonSurface}`;
+    const unit = optionalText(response?.units);
+    sectionsIncluded.push("surfaceVolumes");
+    rows.push(
+      { section: "Surface Volumes", item: `${pair} (cut)`, quantity: requireNumber(response, "cutVolume", "the surface cut volume"), unit, detail: null },
+      { section: "Surface Volumes", item: `${pair} (fill)`, quantity: requireNumber(response, "fillVolume", "the surface fill volume"), unit, detail: null },
+      { section: "Surface Volumes", item: `${pair} (net)`, quantity: requireNumber(response, "netVolume", "the surface net volume"), unit, detail: "unadjusted cut minus fill" },
+    );
+  }
+
+  if (args.includeAlignmentLengths === true) {
+    const response = await appClient.sendCommand("qtyAlignmentLengths", {
+      names: args.alignmentNames ?? null,
+      startStation: null,
+      endStation: null,
+    });
+    sectionsIncluded.push("alignments");
+    for (const alignment of requireCollection(response, "alignments", "qtyAlignmentLengths")) {
+      rows.push({
+        section: "Alignments",
+        item: optionalText(alignment.name) ?? "(unnamed alignment)",
+        quantity: requireNumber(alignment, "length", "an alignment length"),
+        unit: optionalText(response?.units),
+        detail: stationRangeText(alignment.startStation, alignment.endStation),
+      });
+    }
+  }
+
+  if (args.includePipeNetworks === true) {
+    sectionsIncluded.push("pipeNetworks");
+    for (const networkName of args.pipeNetworkNames ?? []) {
+      const response = await appClient.sendCommand("qtyPipeNetworkLengths", { name: networkName, groupBySize: false, groupByMaterial: false });
+      rows.push({
+        section: "Pipe Networks",
+        item: optionalText(response?.networkName) ?? networkName,
+        quantity: requireNumber(response, "totalLength", `the total length of pipe network '${networkName}'`),
+        unit: optionalText(response?.units),
+        detail: pipeCountText(response),
+      });
+    }
+  }
+
+  if (args.includePressureNetworks === true) {
+    sectionsIncluded.push("pressureNetworks");
+    for (const networkName of args.pressureNetworkNames ?? []) {
+      const response = await appClient.sendCommand("qtyPressureNetworkLengths", { name: networkName, groupBySize: false, groupByMaterial: false });
+      rows.push({
+        section: "Pressure Networks",
+        item: optionalText(response?.networkName) ?? networkName,
+        quantity: requireNumber(response, "totalLength", `the total length of pressure network '${networkName}'`),
+        unit: optionalText(response?.units),
+        detail: pipeCountText(response),
+      });
+    }
+  }
+
+  if (args.includeParcelAreas === true) {
+    const response = await appClient.sendCommand("qtyParcelAreas", {
+      siteName: args.siteName ?? null,
+      parcelNames: args.parcelNames ?? null,
+    });
+    sectionsIncluded.push("parcelAreas");
+    for (const parcel of requireCollection(response, "parcels", "qtyParcelAreas")) {
+      const perimeter = optionalNumber(parcel.perimeter);
+      rows.push({
+        section: "Parcel Areas",
+        item: optionalText(parcel.name) ?? "(unnamed parcel)",
+        quantity: requireNumber(parcel, "area", "a parcel area"),
+        unit: optionalText(response?.units),
+        detail: joinDetail([optionalText(parcel.siteName), perimeter !== null ? `perimeter ${perimeter.toFixed(3)}` : null]),
+      });
+    }
+  }
+
+  if (args.includePointCounts === true) {
+    const response = await appClient.sendCommand("qtyPointCountByGroup", { groupNames: args.groupNames ?? null });
+    sectionsIncluded.push("pointCounts");
+    for (const group of requireCollection(response, "groups", "qtyPointCountByGroup")) {
+      rows.push({
+        section: "Point Counts",
+        item: optionalText(group.name) ?? "(unnamed point group)",
+        quantity: requireNumber(group, "count", "a point-group count"),
+        unit: "count",
+        detail: null,
+      });
+    }
+  }
+
+  return { rows, sectionsIncluded };
+}
+
+/**
+ * Exports the BOQ workbook. The path is resolved before any drawing is read, so a rejected path
+ * costs nothing, and the bytes are written through the shared export boundary because the plugin
+ * has no method that accepts a workbook.
+ */
+async function exportQuantityTakeoffXlsx(args: QtyExportToXlsxArgsValue, appClient: ApplicationCommandClient) {
+  const overwrite = args.overwrite ?? false;
+  const outputPath = resolveExportPath(args.outputPath, { allowedExtensions: [".xlsx"], overwrite });
+  const sheetName = args.sheetName ?? BOQ_SHEET_NAME;
+
+  const { rows, sectionsIncluded } = await assembleQuantityXlsxRows(args, appClient);
+  const workbook = buildQuantityTakeoffWorkbook(rows, { sheetName });
+  const bytes = await workbook.xlsx.writeBuffer();
+  writeExportFileAtomic(outputPath, new Uint8Array(bytes), overwrite);
+
+  return { outputPath, sheetName, rowsWritten: rows.length, sectionsIncluded };
+}
+
 const canonicalQuantityTakeoffInputShape = {
-  action: z.enum(["surface_volume", "pipe_network_lengths", "pressure_network_lengths", "parcel_areas", "alignment_lengths", "point_count_by_group", "export_to_csv", "earthwork_summary"]),
+  action: z.enum(["surface_volume", "pipe_network_lengths", "pressure_network_lengths", "parcel_areas", "alignment_lengths", "point_count_by_group", "export_to_csv", "export_to_xlsx", "earthwork_summary"]),
   name: z.string().optional(),
   startStation: z.number().optional(),
   endStation: z.number().optional(),
@@ -39,6 +289,11 @@ const canonicalQuantityTakeoffInputShape = {
   includePressureNetworks: z.boolean().optional(),
   includeParcelAreas: z.boolean().optional(),
   includeAlignmentLengths: z.boolean().optional(),
+  sheetName: z.string().min(1).max(31).optional(),
+  alignmentNames: z.array(z.string()).optional(),
+  pipeNetworkNames: z.array(z.string()).optional(),
+  pressureNetworkNames: z.array(z.string()).optional(),
+  includePointCounts: z.boolean().optional(),
   designSurface: z.string().optional(),
   stationInterval: z.number().optional(),
 };
@@ -53,10 +308,11 @@ export const QUANTITY_TAKEOFF_DOMAIN_DEFINITION: DomainToolDefinition = {
     alignment_lengths: { action: "alignment_lengths", inputSchema: QtyAlignmentLengthsArgs, responseSchema: GenericResponseSchema, capabilities: ["query", "analyze"], requiresActiveDrawing: true, safeForRetry: true, pluginMethods: ["qtyAlignmentLengths"], execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("qtyAlignmentLengths", { names: args.names ?? null, startStation: args.startStation ?? null, endStation: args.endStation ?? null })) },
     point_count_by_group: { action: "point_count_by_group", inputSchema: QtyPointCountByGroupArgs, responseSchema: GenericResponseSchema, capabilities: ["query", "analyze"], requiresActiveDrawing: true, safeForRetry: true, pluginMethods: ["qtyPointCountByGroup"], execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("qtyPointCountByGroup", { groupNames: args.groupNames ?? null })) },
     export_to_csv: { action: "export_to_csv", inputSchema: QtyExportToCsvArgs, responseSchema: GenericResponseSchema, capabilities: ["export", "generate"], requiresActiveDrawing: true, safeForRetry: false, pluginMethods: ["qtyExportToCsv"], execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("qtyExportToCsv", { outputPath: args.outputPath, overwrite: args.overwrite ?? false, includeCorridorVolumes: args.includeCorridorVolumes ?? false, includeSurfaceVolumes: args.includeSurfaceVolumes ?? false, includePipeNetworks: args.includePipeNetworks ?? false, includePressureNetworks: args.includePressureNetworks ?? false, includeParcelAreas: args.includeParcelAreas ?? false, includeAlignmentLengths: args.includeAlignmentLengths ?? false, corridorName: args.corridorName ?? null, baseSurface: args.baseSurface ?? null, comparisonSurface: args.comparisonSurface ?? null })) },
+    export_to_xlsx: { action: "export_to_xlsx", inputSchema: QtyExportToXlsxArgs, responseSchema: QtyExportToXlsxResponseSchema, capabilities: ["export", "generate"], requiresActiveDrawing: true, safeForRetry: false, pluginMethods: ["qtySurfaceVolume", "qtyAlignmentLengths", "qtyPipeNetworkLengths", "qtyPressureNetworkLengths", "qtyParcelAreas", "qtyPointCountByGroup"], execute: async (args) => await withApplicationConnection(async (appClient) => await exportQuantityTakeoffXlsx(args as unknown as QtyExportToXlsxArgsValue, appClient)) },
     earthwork_summary: { action: "earthwork_summary", inputSchema: QtyEarthworkSummaryArgs, responseSchema: GenericResponseSchema, capabilities: ["query", "analyze", "generate"], requiresActiveDrawing: true, safeForRetry: true, pluginMethods: ["qtyEarthworkSummary"], execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("qtyEarthworkSummary", { baseSurface: args.baseSurface, designSurface: args.designSurface, alignmentName: args.alignmentName ?? null, startStation: args.startStation ?? null, endStation: args.endStation ?? null, stationInterval: args.stationInterval ?? 50 })) },
   },
   exposures: [
-    { toolName: "civil3d_quantity_takeoff", displayName: "Civil 3D Quantity Takeoff", description: "Calculates supported surface, network, parcel, alignment, point-group, earthwork, and export quantity-takeoff operations. Corridor QTO material lists require sample-line-group identifiers and are not advertised by the corridor-only contract.", inputShape: canonicalQuantityTakeoffInputShape, supportedActions: ["surface_volume", "pipe_network_lengths", "pressure_network_lengths", "parcel_areas", "alignment_lengths", "point_count_by_group", "export_to_csv", "earthwork_summary"], resolveAction: (rawArgs) => ({ action: String(rawArgs.action ?? ""), args: rawArgs }) },
+    { toolName: "civil3d_quantity_takeoff", displayName: "Civil 3D Quantity Takeoff", description: "Calculates supported surface, network, parcel, alignment, point-group, earthwork, and export quantity-takeoff operations, including a CSV and an Excel BOQ export. Corridor QTO material lists require sample-line-group identifiers and are not advertised by the corridor-only contract.", inputShape: canonicalQuantityTakeoffInputShape, supportedActions: ["surface_volume", "pipe_network_lengths", "pressure_network_lengths", "parcel_areas", "alignment_lengths", "point_count_by_group", "export_to_csv", "export_to_xlsx", "earthwork_summary"], resolveAction: (rawArgs) => ({ action: String(rawArgs.action ?? ""), args: rawArgs }) },
     { toolName: "civil3d_qty_surface_volume", displayName: "Civil 3D Quantity Surface Volume", description: "Calculates cut/fill volume between two surfaces.", inputShape: { baseSurface: z.string(), comparisonSurface: z.string(), corridorName: z.string().optional(), region: RegionSchema.optional() }, supportedActions: ["surface_volume"], resolveAction: (rawArgs) => ({ action: "surface_volume", args: { action: "surface_volume", ...rawArgs } }) },
     { toolName: "civil3d_qty_pipe_network_lengths", displayName: "Civil 3D Quantity Pipe Network Lengths", description: "Summarizes gravity pipe-network lengths.", inputShape: { name: z.string(), groupBySize: z.boolean().optional(), groupByMaterial: z.boolean().optional() }, supportedActions: ["pipe_network_lengths"], resolveAction: (rawArgs) => ({ action: "pipe_network_lengths", args: { action: "pipe_network_lengths", ...rawArgs } }) },
     { toolName: "civil3d_qty_pressure_network_lengths", displayName: "Civil 3D Quantity Pressure Network Lengths", description: "Summarizes pressure-network lengths.", inputShape: { name: z.string(), groupBySize: z.boolean().optional(), groupByMaterial: z.boolean().optional() }, supportedActions: ["pressure_network_lengths"], resolveAction: (rawArgs) => ({ action: "pressure_network_lengths", args: { action: "pressure_network_lengths", ...rawArgs } }) },
@@ -64,6 +320,7 @@ export const QUANTITY_TAKEOFF_DOMAIN_DEFINITION: DomainToolDefinition = {
     { toolName: "civil3d_qty_alignment_lengths", displayName: "Civil 3D Quantity Alignment Lengths", description: "Calculates alignment lengths.", inputShape: { names: z.array(z.string()).optional(), startStation: z.number().optional(), endStation: z.number().optional() }, supportedActions: ["alignment_lengths"], resolveAction: (rawArgs) => ({ action: "alignment_lengths", args: { action: "alignment_lengths", ...rawArgs } }) },
     { toolName: "civil3d_qty_point_count_by_group", displayName: "Civil 3D Quantity Point Count By Group", description: "Counts points by point group.", inputShape: { groupNames: z.array(z.string()).optional() }, supportedActions: ["point_count_by_group"], resolveAction: (rawArgs) => ({ action: "point_count_by_group", args: { action: "point_count_by_group", ...rawArgs } }) },
     { toolName: "civil3d_qty_export_to_csv", displayName: "Civil 3D Quantity Export To CSV", description: "Exports a consolidated quantity report to CSV.", inputShape: { outputPath: z.string(), overwrite: z.boolean().optional(), includeCorridorVolumes: z.boolean().optional(), includeSurfaceVolumes: z.boolean().optional(), includePipeNetworks: z.boolean().optional(), includePressureNetworks: z.boolean().optional(), includeParcelAreas: z.boolean().optional(), includeAlignmentLengths: z.boolean().optional(), corridorName: z.string().optional(), baseSurface: z.string().optional(), comparisonSurface: z.string().optional() }, supportedActions: ["export_to_csv"], resolveAction: (rawArgs) => ({ action: "export_to_csv", args: { action: "export_to_csv", ...rawArgs } }) },
+    { toolName: "civil3d_qty_export_to_xlsx", displayName: "Civil 3D Quantity Export To XLSX", description: "Exports a quantity takeoff bill of quantities to an .xlsx workbook. The workbook is built in the MCP server, so the output path is checked against the same export roots, extension allow-list and overwrite rule that the plugin applies to its CSV export. Select at least one section: surface volumes need baseSurface and comparisonSurface, and the pipe and pressure network sections need their network names.", inputShape: { outputPath: z.string(), overwrite: z.boolean().optional(), sheetName: z.string().min(1).max(31).optional(), includeSurfaceVolumes: z.boolean().optional(), baseSurface: z.string().optional(), comparisonSurface: z.string().optional(), corridorName: z.string().optional(), region: RegionSchema.optional(), includeAlignmentLengths: z.boolean().optional(), alignmentNames: z.array(z.string()).optional(), includePipeNetworks: z.boolean().optional(), pipeNetworkNames: z.array(z.string()).optional(), includePressureNetworks: z.boolean().optional(), pressureNetworkNames: z.array(z.string()).optional(), includeParcelAreas: z.boolean().optional(), siteName: z.string().optional(), parcelNames: z.array(z.string()).optional(), includePointCounts: z.boolean().optional(), groupNames: z.array(z.string()).optional() }, supportedActions: ["export_to_xlsx"], resolveAction: (rawArgs) => ({ action: "export_to_xlsx", args: { action: "export_to_xlsx", ...rawArgs } }) },
     { toolName: "civil3d_qty_earthwork_summary", displayName: "Civil 3D Quantity Earthwork Summary", description: "Generates an earthwork summary between surfaces.", inputShape: { baseSurface: z.string(), designSurface: z.string(), alignmentName: z.string().optional(), startStation: z.number().optional(), endStation: z.number().optional(), stationInterval: z.number().positive().optional() }, supportedActions: ["earthwork_summary"], resolveAction: (rawArgs) => ({ action: "earthwork_summary", args: { action: "earthwork_summary", ...rawArgs } }) },
   ],
 };
