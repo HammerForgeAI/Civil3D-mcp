@@ -931,10 +931,11 @@ public static class AcadCommands
       throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "updateTextContent requires 'text', 'height', 'rotation', both 'x' and 'y', both 'leaderX' and 'leaderY' (MLeader arrow), or 'backgroundMask'.");
     }
 
-    long handleNumber;
+    // The hexadecimal check stays here so a malformed handle is INVALID_INPUT;
+    // CivilObjectUtils.ResolveHandle reports a missing handle as OBJECT_NOT_FOUND.
     try
     {
-      handleNumber = Convert.ToInt64(handleValue, 16);
+      _ = Convert.ToInt64(handleValue, 16);
     }
     catch (Exception ex) when (ex is FormatException or OverflowException)
     {
@@ -943,12 +944,8 @@ public static class AcadCommands
 
     return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
     {
-      var entityHandle = new Handle(handleNumber);
-      var objectId = database.GetObjectId(false, entityHandle, 0);
-      if (objectId.IsNull)
-      {
-        throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"Entity with handle '{handleValue}' was not found.");
-      }
+      var objectId = CivilObjectUtils.ResolveHandle(transaction, database, handleValue)
+        ?? throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"Entity with handle '{handleValue}' was not found.");
 
       var entity = CivilObjectUtils.GetRequiredObject<Entity>(transaction, objectId, OpenMode.ForWrite);
 
@@ -1247,10 +1244,9 @@ public static class AcadCommands
       throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "updateBlockReference requires at least one of 'blockName', 'rotation', 'scaleX'/'scaleY'/'scaleZ', 'attributes', or both 'x' and 'y'.");
     }
 
-    long handleNumber;
     try
     {
-      handleNumber = Convert.ToInt64(handleValue, 16);
+      _ = Convert.ToInt64(handleValue, 16);
     }
     catch (Exception ex) when (ex is FormatException or OverflowException)
     {
@@ -1259,12 +1255,8 @@ public static class AcadCommands
 
     return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
     {
-      var entityHandle = new Handle(handleNumber);
-      var objectId = database.GetObjectId(false, entityHandle, 0);
-      if (objectId.IsNull)
-      {
-        throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"Entity with handle '{handleValue}' was not found.");
-      }
+      var objectId = CivilObjectUtils.ResolveHandle(transaction, database, handleValue)
+        ?? throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"Entity with handle '{handleValue}' was not found.");
 
       if (transaction.GetObject(objectId, OpenMode.ForWrite) is not BlockReference blockRef)
       {
@@ -1493,17 +1485,17 @@ public static class AcadCommands
       foreach (var handleText in handleTexts)
       {
         // Database.GetObjectId throws (eUnknownHandle) for a handle that never existed in this drawing.
-        var objectId = ObjectId.Null;
+        ObjectId? objectId = null;
         try
         {
-          objectId = database.GetObjectId(false, new Handle(Convert.ToInt64(handleText, 16)), 0);
+          objectId = CivilObjectUtils.ResolveHandle(transaction, database, handleText);
         }
         catch (Autodesk.AutoCAD.Runtime.Exception)
         {
           // treated as missing below
         }
 
-        if (objectId.IsNull || objectId.IsErased)
+        if (objectId == null || objectId.Value.IsErased)
         {
           if (!ignoreMissing)
           {
@@ -1514,7 +1506,7 @@ public static class AcadCommands
           continue;
         }
 
-        var entity = CivilObjectUtils.GetRequiredObject<Entity>(transaction, objectId, OpenMode.ForWrite);
+        var entity = CivilObjectUtils.GetRequiredObject<Entity>(transaction, objectId.Value, OpenMode.ForWrite);
         var entityType = entity.GetType().Name;
         var layerName = entity.Layer;
         entity.Erase();
@@ -1535,10 +1527,9 @@ public static class AcadCommands
   {
     var handleValue = PluginRuntime.GetRequiredString(parameters, "handle");
 
-    long handleNumber;
     try
     {
-      handleNumber = Convert.ToInt64(handleValue, 16);
+      _ = Convert.ToInt64(handleValue, 16);
     }
     catch (Exception ex) when (ex is FormatException or OverflowException)
     {
@@ -1547,12 +1538,8 @@ public static class AcadCommands
 
     return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
     {
-      var entityHandle = new Handle(handleNumber);
-      var objectId = database.GetObjectId(false, entityHandle, 0);
-      if (objectId.IsNull)
-      {
-        throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"Entity with handle '{handleValue}' was not found.");
-      }
+      var objectId = CivilObjectUtils.ResolveHandle(transaction, database, handleValue)
+        ?? throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"Entity with handle '{handleValue}' was not found.");
 
       var entity = CivilObjectUtils.GetRequiredObject<Entity>(transaction, objectId, OpenMode.ForWrite);
       var entityType = entity.GetType().Name;

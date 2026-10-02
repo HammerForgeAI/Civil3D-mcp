@@ -14,6 +14,28 @@ public static class CivilObjectUtils
     return dbObject.Handle.ToString();
   }
 
+  /// <summary>
+  /// The one hexadecimal-handle resolver. It replaces four inline copies in
+  /// AcadCommands.cs (updateTextContent, updateBlockReference, eraseEntities,
+  /// eraseEntity). Every caller keeps its own hexadecimal pre-parse and its own
+  /// not-found text, so the errors a caller reports do not change.
+  ///
+  /// Returns null when the database has no object for that handle (ObjectId.Null).
+  /// A handle text that is not hexadecimal throws the conversion exception, and a
+  /// handle this drawing never had throws the AutoCAD exception — exactly what the
+  /// inline copies did, because callers that tolerate a missing handle catch that
+  /// exception themselves (see AcadCommands.EraseEntitiesAsync).
+  ///
+  /// The transaction parameter is the caller's active transaction. This resolver
+  /// does not open the object, so it is unused today; it keeps one signature for
+  /// every caller that resolves a handle inside a transaction.
+  /// </summary>
+  public static ObjectId? ResolveHandle(Transaction transaction, Database database, string handle)
+  {
+    var objectId = database.GetObjectId(false, new Handle(Convert.ToInt64(handle, 16)), 0);
+    return objectId.IsNull ? null : objectId;
+  }
+
   public static string? GetName(object? value)
   {
     if (value == null)

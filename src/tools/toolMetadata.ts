@@ -36,7 +36,8 @@ export type ToolDomain =
   | "stm"
   | "plugin"
   | "xref"
-  | "compare";
+  | "compare"
+  | "object";
 
 export type ToolCapability =
   | "query"

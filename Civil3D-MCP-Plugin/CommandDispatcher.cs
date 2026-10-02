@@ -357,6 +357,12 @@ public static class CommandDispatcher
       "importStm" => StmCommands.ImportStmAsync(parameters),
       "openStormSanitaryAnalysis" => StmCommands.OpenStormSanitaryAnalysisAsync(parameters),
       "listSsaCapabilities" => StmCommands.ListSsaCapabilitiesAsync(),
+      // P1 civil3d_object — generic, reflection-free object introspection
+      "listObjectTypes" => ObjectCommands.ListObjectTypesAsync(parameters),
+      "getObjectProperties" => ObjectCommands.GetObjectPropertiesAsync(parameters),
+      "listObjectPropertyNames" => ObjectCommands.ListObjectPropertyNamesAsync(parameters),
+      "setObjectProperties" => ObjectCommands.SetObjectPropertiesAsync(parameters),
+      "findObjectsByProperty" => ObjectCommands.FindObjectsByPropertyAsync(parameters),
       _ => throw new JsonRpcDispatchException("CIVIL3D.METHOD_NOT_FOUND", $"Plugin method '{method}' is not implemented yet."),
     };
   }
