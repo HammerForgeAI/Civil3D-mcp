@@ -138,12 +138,7 @@ public static class ProfileCommands
       var profileId = Profile.CreateFromSurface(profileName, alignment.ObjectId, surface.ObjectId, layerId, styleId, labelSetId);
       var profile = CivilObjectUtils.GetRequiredObject<Profile>(transaction, profileId, OpenMode.ForRead);
 
-      return new Dictionary<string, object?>
-      {
-        ["alignmentName"] = alignment.Name,
-        ["profileName"] = profile.Name,
-        ["created"] = true,
-      };
+      return CreatedProfileResult(alignment, profile, transaction);
     });
   }
 
@@ -161,13 +156,25 @@ public static class ProfileCommands
       var profileId = Profile.CreateByLayout(profileName, alignment.ObjectId, layerId, styleId, labelSetId);
       var profile = CivilObjectUtils.GetRequiredObject<Profile>(transaction, profileId, OpenMode.ForRead);
 
-      return new Dictionary<string, object?>
-      {
-        ["alignmentName"] = alignment.Name,
-        ["profileName"] = profile.Name,
-        ["created"] = true,
-      };
+      return CreatedProfileResult(alignment, profile, transaction);
     });
+  }
+
+  /// <summary>
+  /// Result of create_layout / create_from_surface. Reports the style and
+  /// layer the profile actually got, so a caller can see what was applied.
+  /// </summary>
+  private static Dictionary<string, object?> CreatedProfileResult(Alignment alignment, Profile profile, Transaction transaction)
+  {
+    return new Dictionary<string, object?>
+    {
+      ["alignmentName"] = alignment.Name,
+      ["profileName"] = profile.Name,
+      ["created"] = true,
+      ["handle"] = CivilObjectUtils.GetHandle(profile),
+      ["style"] = profile.StyleId.IsNull ? null : CivilObjectUtils.GetName(transaction.GetObject(profile.StyleId, OpenMode.ForRead)),
+      ["layer"] = profile.Layer,
+    };
   }
 
   public static Task<object?> DeleteProfileAsync(JsonObject? parameters)
@@ -284,24 +291,17 @@ public static class ProfileCommands
     return "layout";
   }
 
+  // Match the ProfileEntityType enum names exactly: a substring test for
+  // "asymmetric" also matches "parabolasymmetric" (ParabolaSymmetric), which
+  // reported every symmetric curve as asymmetric_parabola.
   private static string MapProfileEntityType(string value)
   {
-    var text = value.ToLowerInvariant();
-    if (text.Contains("asymmetric"))
+    return value switch
     {
-      return "asymmetric_parabola";
-    }
-
-    if (text.Contains("parabola"))
-    {
-      return "parabola";
-    }
-
-    if (text.Contains("curve"))
-    {
-      return "circular_curve";
-    }
-
-    return "tangent";
+      "ParabolaSymmetric" => "symmetric_parabola",
+      "ParabolaAsymmetric" => "asymmetric_parabola",
+      "Circular" => "circular_curve",
+      _ => "tangent",
+    };
   }
 }
