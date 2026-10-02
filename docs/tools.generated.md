@@ -50,7 +50,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `acad_list_open_documents` | drawing | — | listOpenDocuments | yes |
 | `acad_set_active_document` | drawing | — | setActiveDocument | no |
 | `acad_set_system_variable` | drawing | — | setSystemVariable | no |
-| `civil3d_drawing` | drawing | info, new, save, undo, redo, settings, units, selected_objects_info, list_object_types, list_open_documents, set_active_document, get_system_variable, set_system_variable | getDrawingInfo, newDrawing, saveDrawing, undoDrawing, redoDrawing, getDrawingSettings, getDrawingUnits, getSelectedCivilObjectsInfo, listCivilObjectTypes, listOpenDocuments, setActiveDocument, getSystemVariable, setSystemVariable | no |
+| `civil3d_drawing` | drawing | info, new, save, undo, redo, settings, units, selected_objects_info, list_object_types, list_open_documents, set_active_document, get_system_variable, set_system_variable, send_command, execute_script, list_instances, select_instance | getDrawingInfo, newDrawing, saveDrawing, undoDrawing, redoDrawing, getDrawingSettings, getDrawingUnits, getSelectedCivilObjectsInfo, listCivilObjectTypes, listOpenDocuments, setActiveDocument, getSystemVariable, setSystemVariable, sendCommand, executeCSharpScript, getListenerInstance | no |
 | `get_drawing_info` | drawing | — | getDrawingInfo | yes |
 | `get_selected_civil_objects_info` | drawing | — | getSelectedCivilObjectsInfo | yes |
 | `list_civil_object_types` | drawing | — | listCivilObjectTypes | yes |
