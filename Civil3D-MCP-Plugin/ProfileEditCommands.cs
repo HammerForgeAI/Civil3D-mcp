@@ -410,6 +410,41 @@ public static class ProfileEditCommands
         profileView.LayerId = layerId;
       }
 
+      // Folded in from upstream PR #16: a user-specified station range (which may
+      // start before the alignment, e.g. -20) and elevation range, so pipes well
+      // below the ground stay inside the grid.
+      var requestedStationStart = PluginRuntime.GetOptionalDouble(parameters, "stationStart");
+      var requestedStationEnd = PluginRuntime.GetOptionalDouble(parameters, "stationEnd");
+      if (requestedStationStart.HasValue && requestedStationEnd.HasValue)
+      {
+        profileView.StationRangeMode = StationRangeType.UserSpecified;
+        profileView.StationStart = requestedStationStart.Value;
+        profileView.StationEnd = requestedStationEnd.Value;
+      }
+      else if (requestedStationStart.HasValue || requestedStationEnd.HasValue)
+      {
+        warnings.Add("stationStart and stationEnd must be given together; the single value was ignored.");
+      }
+
+      var requestedElevationMin = PluginRuntime.GetOptionalDouble(parameters, "elevationMin");
+      var requestedElevationMax = PluginRuntime.GetOptionalDouble(parameters, "elevationMax");
+      if (requestedElevationMin.HasValue && requestedElevationMax.HasValue)
+      {
+        profileView.ElevationRangeMode = ElevationRangeType.UserSpecified;
+        profileView.ElevationMin = requestedElevationMin.Value;
+        profileView.ElevationMax = requestedElevationMax.Value;
+      }
+      else if (requestedElevationMin.HasValue || requestedElevationMax.HasValue)
+      {
+        warnings.Add("elevationMin and elevationMax must be given together; the single value was ignored.");
+      }
+
+      // Changing a range shifts the grid away from the insertion point, so put it back.
+      if (requestedStationStart.HasValue || requestedElevationMin.HasValue)
+      {
+        profileView.Location = insertionPoint;
+      }
+
       return new Dictionary<string, object?>
       {
         ["profileViewName"] = profileView.Name,
@@ -422,6 +457,10 @@ public static class ProfileEditCommands
         ["insertX"] = insertX,
         ["insertY"] = insertY,
         ["warnings"] = warnings,
+        ["stationStart"] = profileView.StationStart,
+        ["stationEnd"] = profileView.StationEnd,
+        ["elevationMin"] = profileView.ElevationMin,
+        ["elevationMax"] = profileView.ElevationMax,
         ["success"] = true,
       };
     });
@@ -487,6 +526,129 @@ public static class ProfileEditCommands
         ["success"] = true,
       };
     });
+  }
+
+  // ─── profileViewInfo / profileViewSetLocation ─────────────────────────────
+
+  // Station/elevation <-> model XY for a profile view, so sheet annotations (leaders, dims, crossing
+  // symbols) can be placed from design values instead of hand-measured coordinates.
+  // Without a name it lists every profile view in model space with the same placement summary.
+  public static Task<object?> ProfileViewInfoAsync(JsonObject? parameters)
+  {
+    var profileViewName = PluginRuntime.GetOptionalString(parameters, "profileViewName");
+
+    return CivilExecution.ReadAsync<object?>((doc, civilDoc, database, transaction) =>
+    {
+      if (string.IsNullOrWhiteSpace(profileViewName))
+      {
+        var blockTable = CivilObjectUtils.GetRequiredObject<BlockTable>(transaction, database.BlockTableId, OpenMode.ForRead);
+        var modelSpace = CivilObjectUtils.GetRequiredObject<BlockTableRecord>(transaction, blockTable[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+        var views = new List<Dictionary<string, object?>>();
+        foreach (ObjectId objectId in modelSpace)
+        {
+          if (transaction.GetObject(objectId, OpenMode.ForRead) is ProfileView view)
+          {
+            views.Add(DescribeProfileView(view, transaction));
+          }
+        }
+
+        return new Dictionary<string, object?> { ["profileViews"] = views };
+      }
+
+      var profileView = FindProfileViewByName(civilDoc, transaction, profileViewName);
+      var result = DescribeProfileView(profileView, transaction);
+
+      var points = new List<Dictionary<string, object?>>();
+      if (PluginRuntime.GetParameter(parameters, "points") is JsonArray stationPoints)
+      {
+        foreach (var node in stationPoints.OfType<JsonObject>())
+        {
+          var station = PluginRuntime.GetRequiredDouble(node, "station");
+          var elevation = PluginRuntime.GetRequiredDouble(node, "elevation");
+          var xy = ToXY(profileView, station, elevation);
+          points.Add(new Dictionary<string, object?> { ["station"] = station, ["elevation"] = elevation, ["x"] = xy.X, ["y"] = xy.Y });
+        }
+      }
+
+      var xyPoints = new List<Dictionary<string, object?>>();
+      if (PluginRuntime.GetParameter(parameters, "xyPoints") is JsonArray modelPoints)
+      {
+        foreach (var node in modelPoints.OfType<JsonObject>())
+        {
+          var x = PluginRuntime.GetRequiredDouble(node, "x");
+          var y = PluginRuntime.GetRequiredDouble(node, "y");
+          double station = 0, elevation = 0;
+          var inside = profileView.FindStationAndElevationAtXY(x, y, ref station, ref elevation);
+          xyPoints.Add(new Dictionary<string, object?> { ["x"] = x, ["y"] = y, ["station"] = station, ["elevation"] = elevation, ["insideView"] = inside });
+        }
+      }
+
+      result["points"] = points;
+      result["xyPoints"] = xyPoints;
+      return result;
+    });
+  }
+
+  private static Dictionary<string, object?> DescribeProfileView(ProfileView profileView, Transaction transaction)
+  {
+    var alignment = CivilObjectUtils.GetRequiredObject<Alignment>(transaction, profileView.AlignmentId, OpenMode.ForRead);
+    var origin = ToXY(profileView, profileView.StationStart, profileView.ElevationMin);
+    var unitStation = ToXY(profileView, profileView.StationStart + 1d, profileView.ElevationMin);
+    var unitElevation = ToXY(profileView, profileView.StationStart, profileView.ElevationMin + 1d);
+    var station0 = ToXY(profileView, 0d, 0d);
+
+    return new Dictionary<string, object?>
+    {
+      ["profileViewName"] = profileView.Name,
+      ["handle"] = profileView.Handle.ToString(),
+      ["alignmentName"] = alignment.Name,
+      ["location"] = new Dictionary<string, object?> { ["x"] = profileView.Location.X, ["y"] = profileView.Location.Y },
+      ["gridOrigin"] = new Dictionary<string, object?> { ["x"] = origin.X, ["y"] = origin.Y },
+      ["station0Elevation0"] = new Dictionary<string, object?> { ["x"] = station0.X, ["y"] = station0.Y },
+      ["stationStart"] = profileView.StationStart,
+      ["stationEnd"] = profileView.StationEnd,
+      ["elevationMin"] = profileView.ElevationMin,
+      ["elevationMax"] = profileView.ElevationMax,
+      ["xPerStation"] = unitStation.X - origin.X,
+      ["yPerElevation"] = unitElevation.Y - origin.Y,
+    };
+  }
+
+  // Moves a profile view so that (anchorStation, anchorElevation) lands on (targetX, targetY), e.g. to
+  // line a rebuilt view up with an existing sheet's viewports and annotations. Parts drawn in the view
+  // move with it.
+  public static Task<object?> ProfileViewSetLocationAsync(JsonObject? parameters)
+  {
+    var profileViewName = PluginRuntime.GetRequiredString(parameters, "profileViewName");
+    var anchorStation = PluginRuntime.GetRequiredDouble(parameters, "anchorStation");
+    var anchorElevation = PluginRuntime.GetRequiredDouble(parameters, "anchorElevation");
+    var targetX = PluginRuntime.GetRequiredDouble(parameters, "targetX");
+    var targetY = PluginRuntime.GetRequiredDouble(parameters, "targetY");
+
+    return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
+    {
+      var found = FindProfileViewByName(civilDoc, transaction, profileViewName);
+      var profileView = CivilObjectUtils.GetRequiredObject<ProfileView>(transaction, found.ObjectId, OpenMode.ForWrite);
+      var before = ToXY(profileView, anchorStation, anchorElevation);
+      var oldLocation = profileView.Location;
+      profileView.Location = new Point3d(oldLocation.X + targetX - before.X, oldLocation.Y + targetY - before.Y, oldLocation.Z);
+      var after = ToXY(profileView, anchorStation, anchorElevation);
+
+      return new Dictionary<string, object?>
+      {
+        ["profileViewName"] = profileView.Name,
+        ["moved"] = new Dictionary<string, object?> { ["dx"] = targetX - before.X, ["dy"] = targetY - before.Y },
+        ["location"] = new Dictionary<string, object?> { ["x"] = profileView.Location.X, ["y"] = profileView.Location.Y },
+        ["anchor"] = new Dictionary<string, object?> { ["x"] = after.X, ["y"] = after.Y },
+      };
+    });
+  }
+
+  private static Point2d ToXY(ProfileView profileView, double station, double elevation)
+  {
+    double x = 0, y = 0;
+    profileView.FindXYAtStationAndElevation(station, elevation, ref x, ref y);
+    return new Point2d(x, y);
   }
 
   // ─── Private helpers ─────────────────────────────────────────────────────

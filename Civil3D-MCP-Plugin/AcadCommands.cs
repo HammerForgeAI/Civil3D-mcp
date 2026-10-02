@@ -111,7 +111,7 @@ public static class AcadCommands
     });
   }
 
-  private static string ParseTargetSpace(JsonObject? parameters)
+  internal static string ParseTargetSpace(JsonObject? parameters)
   {
     var space = PluginRuntime.GetOptionalString(parameters, "space")?.Trim().ToLowerInvariant() ?? "model";
     if (space != "model" && space != "paper")
@@ -128,7 +128,7 @@ public static class AcadCommands
 
   // Resolves the block table record new entities are appended to. For paper space, uses the named
   // layout, or the current layout when it is a paper layout; otherwise fails listing available layouts.
-  private static (BlockTableRecord Space, string LayoutName) ResolveTargetSpace(Database database, Transaction transaction, string space, string? layoutName)
+  internal static (BlockTableRecord Space, string LayoutName) ResolveTargetSpace(Database database, Transaction transaction, string space, string? layoutName)
   {
     if (space == "model")
     {
@@ -302,6 +302,8 @@ public static class AcadCommands
         mtext.Width = width;
       }
 
+      DraftingBatchCommands.ApplyMTextMask(mtext, parameters!);
+
       if (!string.IsNullOrWhiteSpace(layerName))
       {
         var layerId = LookupUtils.GetLayerId(database, transaction, layerName);
@@ -461,6 +463,9 @@ public static class AcadCommands
             continue;
           }
 
+          // Bounding box of what is actually drawn (for an MText: its real wrapped height, not the column box).
+          // Lets callers measure how far a shortened note moved (fase1_build shifts the glyphs left under it).
+          AddTextExtents(entry, (Entity)dbObject);
           results.Add(entry);
         }
       }
@@ -767,6 +772,69 @@ public static class AcadCommands
     return entry;
   }
 
+  private static void AddTextExtents(Dictionary<string, object?> entry, Entity entity)
+  {
+    // MText.GeometricExtents is unreliable on a multi-paragraph note (VILLA ONE CF80: 0.46" tall for a ~10" note, so
+    // fase1_build measured a zero shift); its real box comes from ActualWidth/ActualHeight around the attachment point.
+    if (entity is MText mText && TryGetMTextBox(mText, out var minX, out var minY, out var maxX, out var maxY))
+    {
+      entry["minX"] = minX;
+      entry["minY"] = minY;
+      entry["maxX"] = maxX;
+      entry["maxY"] = maxY;
+      return;
+    }
+
+    Extents3d? bounds = null;
+    try { bounds = entity.GeometricExtents; } catch { bounds = null; }
+    entry["minX"] = bounds?.MinPoint.X;
+    entry["minY"] = bounds?.MinPoint.Y;
+    entry["maxX"] = bounds?.MaxPoint.X;
+    entry["maxY"] = bounds?.MaxPoint.Y;
+  }
+
+  private static bool TryGetMTextBox(MText mText, out double minX, out double minY, out double maxX, out double maxY)
+  {
+    minX = minY = maxX = maxY = 0;
+    double width, height;
+    try
+    {
+      width = mText.ActualWidth;
+      height = mText.ActualHeight;
+    }
+    catch
+    {
+      return false;
+    }
+
+    var attachment = (int)mText.Attachment;
+    if (height <= 0 || width < 0 || attachment < 1 || attachment > 9)
+    {
+      return false;
+    }
+
+    // Attachment 1..9 = Top/Middle/Bottom x Left/Center/Right: offset of the box's top-left from the insertion point.
+    var column = (attachment - 1) % 3;
+    var row = (attachment - 1) / 3;
+    var left = -width * column / 2.0;
+    var top = height * row / 2.0;
+    var cos = Math.Cos(mText.Rotation);
+    var sin = Math.Sin(mText.Rotation);
+    minX = minY = double.MaxValue;
+    maxX = maxY = double.MinValue;
+    foreach (var (u, v) in new[] { (left, top), (left + width, top), (left, top - height), (left + width, top - height) })
+    {
+      var x = mText.Location.X + u * cos - v * sin;
+      var y = mText.Location.Y + u * sin + v * cos;
+      minX = Math.Min(minX, x);
+      minY = Math.Min(minY, y);
+      maxX = Math.Max(maxX, x);
+      maxY = Math.Max(maxY, y);
+    }
+
+    return true;
+  }
+
   private static Dictionary<string, object?> BuildTextEntry(DBText dbText, string layoutName, bool isModelSpace) => new()
   {
     ["handle"] = CivilObjectUtils.GetHandle(dbText),
@@ -853,9 +921,14 @@ public static class AcadCommands
     var newHeight = PluginRuntime.GetOptionalDouble(parameters, "height");
     var newRotation = PluginRuntime.GetOptionalDouble(parameters, "rotation");
 
-    if (newText == null && newHeight == null && newRotation == null && (newX == null || newY == null))
+    var newLeaderX = PluginRuntime.GetOptionalDouble(parameters, "leaderX");
+    var newLeaderY = PluginRuntime.GetOptionalDouble(parameters, "leaderY");
+    var maskRequested = PluginRuntime.GetOptionalBool(parameters, "backgroundMask") != null;
+
+    if (newText == null && newHeight == null && newRotation == null && (newX == null || newY == null)
+      && (newLeaderX == null || newLeaderY == null) && !maskRequested)
     {
-      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "updateTextContent requires 'text', 'height', 'rotation', or both 'x' and 'y'.");
+      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "updateTextContent requires 'text', 'height', 'rotation', both 'x' and 'y', both 'leaderX' and 'leaderY' (MLeader arrow), or 'backgroundMask'.");
     }
 
     long handleNumber;
@@ -936,6 +1009,8 @@ public static class AcadCommands
             mText.Rotation = mtr;
           }
 
+          DraftingBatchCommands.ApplyMTextMask(mText, parameters!);
+
           return new Dictionary<string, object?>
           {
             ["handle"] = handleValue,
@@ -950,11 +1025,6 @@ public static class AcadCommands
           };
 
         case MLeader mLeader:
-          if (newX != null || newY != null || newRotation != null)
-          {
-            throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "MLeader entities only support 'text' and 'height' updates, not position or rotation (leader vertices require dedicated leader APIs).");
-          }
-
           var existingMText = mLeader.MText ?? throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"MLeader '{handleValue}' has no editable text content.");
           if (newText != null)
           {
@@ -968,19 +1038,73 @@ public static class AcadCommands
 
           mLeader.MText = existingMText;
 
+          // Arrow tip: first vertex of the first leader line.
+          if (newLeaderX is double lax && newLeaderY is double lay)
+          {
+            var leaderIndexes = mLeader.GetLeaderIndexes();
+            var lineIndexes = leaderIndexes.Count > 0 ? mLeader.GetLeaderLineIndexes((int)leaderIndexes[0]) : null;
+            if (lineIndexes == null || lineIndexes.Count == 0)
+            {
+              throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"MLeader '{handleValue}' has no leader line to move.");
+            }
+
+            mLeader.SetFirstVertex((int)lineIndexes[0], new Point3d(lax, lay, 0));
+          }
+
+          // Text: x/y moves it (re-picking the anchor side); rotation alone turns it in place.
+          if (newX is double lx && newY is double ly)
+          {
+            DraftingBatchCommands.MoveMLeaderText(mLeader, new Point3d(lx, ly, newZ ?? 0), newRotation);
+          }
+          else if (newRotation is double lr)
+          {
+            DraftingBatchCommands.MoveMLeaderText(mLeader, mLeader.TextLocation, lr);
+          }
+
           return new Dictionary<string, object?>
           {
             ["handle"] = handleValue,
             ["entityType"] = "MLeader",
             ["text"] = mLeader.MText?.Contents,
-            ["x"] = mLeader.MText?.Location.X,
-            ["y"] = mLeader.MText?.Location.Y,
-            ["z"] = mLeader.MText?.Location.Z,
+            ["x"] = mLeader.TextLocation.X,
+            ["y"] = mLeader.TextLocation.Y,
+            ["z"] = mLeader.TextLocation.Z,
             ["layer"] = mLeader.Layer,
           };
 
+        case Dimension dim:
+          // Fixes a dimension whose text drifted from AutoCAD's own DIMFIT auto-placement (short
+          // dimensions at a large annotation scale can eject text several feet away — see the
+          // hasExplicitDimLine fix in DimensionViewportCommands.CreateAlignedDimensionAsync for new
+          // dimensions; this is the same fix applied to one already in the drawing).
+          if (newX is double dimx && newY is double dimy)
+          {
+            dim.TextPosition = new Point3d(dimx, dimy, newZ ?? dim.TextPosition.Z);
+            dim.UsingDefaultTextPosition = false;
+          }
+          else if (newX != null || newY != null)
+          {
+            throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "Moving a dimension's text requires both 'x' and 'y'.");
+          }
+
+          if (newText != null)
+          {
+            dim.DimensionText = newText;
+          }
+
+          return new Dictionary<string, object?>
+          {
+            ["handle"] = handleValue,
+            ["entityType"] = entity.GetType().Name,
+            ["text"] = dim.DimensionText,
+            ["x"] = dim.TextPosition.X,
+            ["y"] = dim.TextPosition.Y,
+            ["z"] = dim.TextPosition.Z,
+            ["layer"] = dim.Layer,
+          };
+
         default:
-          throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"Entity type '{entity.GetType().Name}' does not support text updates. Supported types: DBText, MText, MLeader.");
+          throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"Entity type '{entity.GetType().Name}' does not support text updates. Supported types: DBText, MText, MLeader, Dimension.");
       }
     });
   }
@@ -1325,6 +1449,84 @@ public static class AcadCommands
         ["scaleY"] = created.ScaleFactors.Y,
         ["scaleZ"] = created.ScaleFactors.Z,
         ["layer"] = created.Layer,
+      };
+    });
+  }
+
+  // Bulk erase for repetitive clean-ups (e.g. turning a fase-2/3 file back into a fase-1 file): ONE approval and ONE
+  // transaction for up to 500 handles, in the given order (erase pipes before their structures). A handle that no longer
+  // exists or was already erased by a cascade (network parts, labels of an erased parent) is reported in `skipped`
+  // instead of aborting, unless ignoreMissing=false.
+  public static Task<object?> EraseEntitiesAsync(JsonObject? parameters)
+  {
+    if (PluginRuntime.GetParameter(parameters, "handles") is not JsonArray handles || handles.Count == 0)
+    {
+      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "eraseEntities requires a non-empty 'handles' array.");
+    }
+
+    if (handles.Count > 500)
+    {
+      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"eraseEntities accepts at most 500 handles per call (got {handles.Count}); split the list.");
+    }
+
+    var ignoreMissing = PluginRuntime.GetOptionalBool(parameters, "ignoreMissing") ?? true;
+    var handleTexts = new List<string>();
+    foreach (var node in handles)
+    {
+      var text = node?.GetValue<string>() ?? string.Empty;
+      try
+      {
+        _ = Convert.ToInt64(text, 16);
+      }
+      catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException)
+      {
+        throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"Handle '{text}' is not a valid hexadecimal handle.");
+      }
+
+      handleTexts.Add(text);
+    }
+
+    return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
+    {
+      var erased = new List<Dictionary<string, object?>>();
+      var skipped = new List<Dictionary<string, object?>>();
+      foreach (var handleText in handleTexts)
+      {
+        // Database.GetObjectId throws (eUnknownHandle) for a handle that never existed in this drawing.
+        var objectId = ObjectId.Null;
+        try
+        {
+          objectId = database.GetObjectId(false, new Handle(Convert.ToInt64(handleText, 16)), 0);
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+          // treated as missing below
+        }
+
+        if (objectId.IsNull || objectId.IsErased)
+        {
+          if (!ignoreMissing)
+          {
+            throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"Entity with handle '{handleText}' was not found or is already erased.");
+          }
+
+          skipped.Add(new Dictionary<string, object?> { ["handle"] = handleText, ["reason"] = "not found or already erased" });
+          continue;
+        }
+
+        var entity = CivilObjectUtils.GetRequiredObject<Entity>(transaction, objectId, OpenMode.ForWrite);
+        var entityType = entity.GetType().Name;
+        var layerName = entity.Layer;
+        entity.Erase();
+        erased.Add(new Dictionary<string, object?> { ["handle"] = handleText, ["entityType"] = entityType, ["layer"] = layerName });
+      }
+
+      return new Dictionary<string, object?>
+      {
+        ["erasedCount"] = erased.Count,
+        ["skippedCount"] = skipped.Count,
+        ["erased"] = erased,
+        ["skipped"] = skipped,
       };
     });
   }

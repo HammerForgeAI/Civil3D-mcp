@@ -77,6 +77,82 @@ public static class LayerXrefCommands
     });
   }
 
+  /// <summary>Read-only layer table dump (name, ACI color, linetype, frozen/off/locked/plot, xref-dependent). The plugin could not
+  /// read layer state before, which forced a Core Console dump of the SAVED file just to know whether C-TINN-BNDY is frozen.</summary>
+  public static Task<object?> ListLayersAsync(JsonObject? parameters)
+  {
+    var exactName = PluginRuntime.GetOptionalString(parameters, "name");
+    var pattern = PluginRuntime.GetOptionalString(parameters, "namePattern");
+    var includeXref = PluginRuntime.GetOptionalBool(parameters, "includeXref") ?? true;
+    var limit = Math.Clamp(PluginRuntime.GetOptionalInt(parameters, "limit") ?? 2000, 1, 5000);
+
+    return CivilExecution.ReadAsync<object?>((doc, civilDoc, database, transaction) =>
+    {
+      var layerTable = CivilObjectUtils.GetRequiredObject<LayerTable>(transaction, database.LayerTableId, OpenMode.ForRead);
+      var layers = new List<Dictionary<string, object?>>();
+      var totalLayers = 0;
+      var matched = 0;
+      foreach (ObjectId layerId in layerTable)
+      {
+        totalLayers++;
+        var layer = CivilObjectUtils.GetRequiredObject<LayerTableRecord>(transaction, layerId, OpenMode.ForRead);
+        if (!string.IsNullOrWhiteSpace(exactName) && !layer.Name.Equals(exactName, StringComparison.OrdinalIgnoreCase))
+        {
+          continue;
+        }
+
+        if (!string.IsNullOrWhiteSpace(pattern) && !System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(pattern, layer.Name, true))
+        {
+          continue;
+        }
+
+        if (!includeXref && layer.IsDependent)
+        {
+          continue;
+        }
+
+        matched++;
+        if (layers.Count >= limit)
+        {
+          continue;
+        }
+
+        var linetypeName = string.Empty;
+        try
+        {
+          linetypeName = CivilObjectUtils.GetRequiredObject<LinetypeTableRecord>(transaction, layer.LinetypeObjectId, OpenMode.ForRead).Name;
+        }
+        catch (Exception)
+        {
+          // a layer whose linetype record cannot be opened still reports its state
+        }
+
+        layers.Add(new Dictionary<string, object?>
+        {
+          ["name"] = layer.Name,
+          ["colorIndex"] = (int)layer.Color.ColorIndex,
+          ["linetype"] = linetypeName,
+          ["lineweight"] = (int)layer.LineWeight,
+          ["isFrozen"] = layer.IsFrozen,
+          ["isOff"] = layer.IsOff,
+          ["isLocked"] = layer.IsLocked,
+          ["isPlottable"] = layer.IsPlottable,
+          ["isXrefDependent"] = layer.IsDependent,
+          ["handle"] = CivilObjectUtils.GetHandle(layer),
+        });
+      }
+
+      return new Dictionary<string, object?>
+      {
+        ["totalLayers"] = totalLayers,
+        ["matched"] = matched,
+        ["count"] = layers.Count,
+        ["truncated"] = matched > layers.Count,
+        ["layers"] = layers,
+      };
+    });
+  }
+
   public static Task<object?> CreateOrUpdateLayerAsync(JsonObject? parameters)
   {
     var layerName = PluginRuntime.GetRequiredString(parameters, "name");

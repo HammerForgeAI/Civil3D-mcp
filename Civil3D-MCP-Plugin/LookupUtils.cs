@@ -132,6 +132,29 @@ public static class LookupUtils
     return GetStyleId(civilDoc.Styles.AlignmentStyles, transaction, styleName, "Alignment style");
   }
 
+  /// <summary>
+  /// Exact (case-insensitive) alignment style lookup. Unlike <see cref="GetAlignmentStyleId"/> it never falls back to the
+  /// first style in the collection, so a typo cannot silently restyle an existing alignment. Returns ObjectId.Null if absent.
+  /// </summary>
+  public static ObjectId FindAlignmentStyleIdExact(CivilDocument civilDoc, Transaction transaction, string styleName)
+  {
+    foreach (var objectId in EnumerateObjectIds(civilDoc.Styles.AlignmentStyles))
+    {
+      if (objectId == ObjectId.Null)
+      {
+        continue;
+      }
+
+      var style = transaction.GetObject(objectId, OpenMode.ForRead);
+      if (string.Equals(CivilObjectUtils.GetName(style), styleName, StringComparison.OrdinalIgnoreCase))
+      {
+        return objectId;
+      }
+    }
+
+    return ObjectId.Null;
+  }
+
   public static ObjectId GetProfileStyleId(CivilDocument civilDoc, Transaction transaction, string? styleName)
   {
     return GetStyleId(civilDoc.Styles.ProfileStyles, transaction, styleName, "Profile style");

@@ -189,6 +189,13 @@ mutations use a three-step policy flow:
 3. Retry the target tool call with `approvalToken`. Changing the drawing,
    action, or parameters invalidates the token.
 
+For a known sequence (for example the clean-up steps of a delivery) call
+`civil3d_request_plan_approval` once with up to 40 ordered
+`{toolName, action, parameters}` steps. It returns one single-use token per step, all
+bound to the active **document** (not to its contents, which each step changes). Steps
+must run in order with exactly their approved parameters; another document, changed
+parameters, a skipped step, or expiry (default 15 min, max 30 min) rejects the token.
+
 Set `CIVIL3D_APPROVAL_MODE=disabled` only for isolated local development or
 test environments; production deployments should retain the default policy.
 
