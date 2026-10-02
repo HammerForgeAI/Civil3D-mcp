@@ -40,6 +40,7 @@ import { DOCS_DOMAIN_DEFINITION } from "./domains/docsDomain.js";
 import { WORKFLOW_DOMAIN_DEFINITION } from "./domains/workflowDomain.js";
 import { XREF_DOMAIN_DEFINITION } from "./domains/xrefDomain.js";
 import { COMPARE_DOMAIN_DEFINITION } from "./domains/compareDomain.js";
+import { PLAN_VISION_DOMAIN_DEFINITION } from "./domains/planVisionDomain.js";
 import type { ToolCatalogEntry } from "./toolMetadata.js";
 
 export const MIGRATED_DOMAIN_DEFINITIONS = [
@@ -76,6 +77,9 @@ export const MIGRATED_DOMAIN_DEFINITIONS = [
   DOCS_DOMAIN_DEFINITION,
   XREF_DOMAIN_DEFINITION,
   COMPARE_DOMAIN_DEFINITION,
+  // P12 item 9: the only domain that never opens a plugin connection. Five of its actions call the
+  // OPTIONAL Python service in plan-vision/; one is pure arithmetic. Nothing else depends on it.
+  PLAN_VISION_DOMAIN_DEFINITION,
 ];
 
 export const GENERATED_TOOL_CATALOG_ENTRIES: ToolCatalogEntry[] = MIGRATED_DOMAIN_DEFINITIONS.flatMap(

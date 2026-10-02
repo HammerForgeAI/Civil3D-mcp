@@ -1,0 +1,11 @@
+# plan-vision is an OPTIONAL service. It is never a runtime dependency of the MCP server and no
+# tool needs it to start. Every entry is pinned to one exact release so a machine that installs
+# this file gets the versions the TypeScript bridge was written against.
+#
+# Tesseract is a system binary, not a pip package. Install it separately and confirm it is on the
+# PATH with `tesseract --version`. See README.md.
+opencv-python==4.10.0.84
+pytesseract==0.3.13
+pymupdf==1.24.11
+pillow==11.0.0
+numpy==2.1.3
