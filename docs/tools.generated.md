@@ -2,8 +2,8 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 251
-- Domains: 34
+- Catalog entries: 259
+- Domains: 35
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
 |---|---|---|---|---|
@@ -57,18 +57,24 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_file` | file | read_docx, read_xlsx, read_pptx, read_zip, read_doc, read_xls, attach_raster_image | readDocx, readXlsx, readPptx, readZip, readDoc, readXls, attachRasterImage | no |
 | `acad_attach_xref` | geometry | — | attachXref, overlayXref | no |
 | `acad_audit_drawing` | geometry | — | auditDrawing | no |
+| `acad_count_blocks_by_name` | geometry | — | countBlocksByName | yes |
 | `acad_create_3dpolyline` | geometry | — | create3dPolyline | no |
 | `acad_create_aligned_dimension` | geometry | — | createAlignedDimension | no |
 | `acad_create_entities` | geometry | — | createEntities | no |
+| `acad_create_hatch` | geometry | — | createHatch | no |
 | `acad_create_mleader` | geometry | — | createMLeader | no |
 | `acad_create_mtext` | geometry | — | createMText | no |
 | `acad_create_or_update_layer` | geometry | — | createOrUpdateLayer | no |
 | `acad_create_polyline` | geometry | — | createPolyline | no |
 | `acad_create_text` | geometry | — | createText | no |
+| `acad_detect_parallel_line_pairs` | geometry | — | detectParallelLinePairs | yes |
 | `acad_erase_entities` | geometry | — | eraseEntities | no |
 | `acad_erase_entity` | geometry | — | eraseEntity | no |
+| `acad_get_entity_extended_data` | geometry | — | getEntityExtendedData | yes |
+| `acad_group_entities_by_proximity` | geometry | — | groupEntitiesByProximity | yes |
 | `acad_insert_block_reference` | geometry | — | insertBlockReference | no |
 | `acad_layout` | geometry | list_layouts, new_layout, copy_layout, rename_layout, delete_layout, set_viewport_scale | listLayouts, createLayout, copyLayout, renameLayout, deleteLayout, setViewportAnnotationScale | no |
+| `acad_list_block_definitions` | geometry | — | listBlockDefinitions | yes |
 | `acad_list_block_references` | geometry | — | listBlockReferences | yes |
 | `acad_list_dimensions` | geometry | — | listDimensions | yes |
 | `acad_list_layers` | geometry | — | listLayers | yes |
@@ -82,11 +88,12 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `acad_set_viewport_twist` | geometry | — | setViewportTwist | no |
 | `acad_update_block_reference` | geometry | — | updateBlockReference | no |
 | `acad_update_text_content` | geometry | — | updateTextContent | no |
+| `civil3d_classify_geometry_by_signature` | geometry | — | — | yes |
 | `civil3d_cogo_curve_solve` | geometry | — | cogoCurveSolve | yes |
 | `civil3d_cogo_direction_distance` | geometry | — | cogoDirectionDistance | yes |
 | `civil3d_cogo_inverse` | geometry | — | cogoInverse | yes |
 | `civil3d_cogo_traverse` | geometry | — | cogoTraverse | yes |
-| `civil3d_geometry` | geometry | cogo_inverse, cogo_direction_distance, cogo_traverse, cogo_curve_solve, create_line_segment, create_polyline, create_3dpolyline, create_text, create_mtext, create_mleader, list_text_entities, list_polyline_entities, list_block_references, list_shape_entities, update_text_content, update_block_reference, erase_entity, erase_entities, attach_xref, create_or_update_layer, purge_unused, audit_drawing, insert_block_reference, list_dimensions, create_aligned_dimension, list_viewports, set_viewport_twist, create_entities, list_layouts, new_layout, copy_layout, rename_layout, delete_layout, set_viewport_scale, list_layers | cogoInverse, cogoDirectionDistance, cogoTraverse, cogoCurveSolve, createLineSegment, createPolyline, create3dPolyline, createText, createMText, createMLeader, listTextEntities, listPolylineEntities, listBlockReferences, listShapeEntities, updateTextContent, updateBlockReference, eraseEntity, eraseEntities, attachXref, overlayXref, createOrUpdateLayer, purgeUnused, auditDrawing, insertBlockReference, listDimensions, createAlignedDimension, listViewports, setViewportTwist, createEntities, listLayouts, createLayout, copyLayout, renameLayout, deleteLayout, setViewportAnnotationScale, listLayers | no |
+| `civil3d_geometry` | geometry | cogo_inverse, cogo_direction_distance, cogo_traverse, cogo_curve_solve, create_line_segment, create_polyline, create_3dpolyline, create_text, create_mtext, create_mleader, list_text_entities, list_polyline_entities, list_block_references, list_shape_entities, update_text_content, update_block_reference, erase_entity, erase_entities, attach_xref, create_or_update_layer, purge_unused, audit_drawing, insert_block_reference, list_dimensions, create_aligned_dimension, list_viewports, set_viewport_twist, create_entities, list_layouts, new_layout, copy_layout, rename_layout, delete_layout, set_viewport_scale, list_layers, list_block_definitions, count_blocks_by_name, detect_parallel_line_pairs, group_entities_by_proximity, get_entity_extended_data, classify_geometry_by_signature, create_hatch | cogoInverse, cogoDirectionDistance, cogoTraverse, cogoCurveSolve, createLineSegment, createPolyline, create3dPolyline, createText, createMText, createMLeader, listTextEntities, listPolylineEntities, listBlockReferences, listShapeEntities, updateTextContent, updateBlockReference, eraseEntity, eraseEntities, attachXref, overlayXref, createOrUpdateLayer, purgeUnused, auditDrawing, insertBlockReference, listDimensions, createAlignedDimension, listViewports, setViewportTwist, createEntities, listLayouts, createLayout, copyLayout, renameLayout, deleteLayout, setViewportAnnotationScale, listLayers, listBlockDefinitions, countBlocksByName, detectParallelLinePairs, groupEntitiesByProximity, getEntityExtendedData, createHatch | no |
 | `create_line_segment` | geometry | — | createLineSegment | no |
 | `civil3d_feature_line` | grading | list, get, export_as_polyline | listFeatureLines, getFeatureLine, exportFeatureLineAsPolyline | no |
 | `civil3d_feature_line_create` | grading | — | createFeatureLine | no |
@@ -112,6 +119,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_time_of_concentration` | hydrology | list_tc_methods, calculate_tc, generate_hydrograph | listTcMethods, calculateTimeOfConcentration, generateHydrograph | yes |
 | `civil3d_job` | job | start, status, cancel | startJob, getJobStatus, cancelJob | no |
 | `civil3d_legend` | legend | read_legend_table, build_symbol_dictionary, compare_legend_vs_drawing | readLegendTable | yes |
+| `civil3d_object` | object | list_types, get_properties, list_properties, set_properties, find_by_property | listObjectTypes, getObjectProperties, listObjectPropertyNames, setObjectProperties, findObjectsByProperty | no |
 | `civil3d_parcel` | parcel | list_sites, list, get, get_geometry, create, edit, lot_line_adjust, report | listParcelSites, listParcels, getParcel, getParcelGeometry, createParcel, editParcel, adjustParcelLotLine, reportParcels | no |
 | `civil3d_parcel_create` | parcel | — | createParcel | no |
 | `civil3d_parcel_edit` | parcel | — | editParcel | no |
