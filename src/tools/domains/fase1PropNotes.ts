@@ -7,8 +7,9 @@
  * Rules (validated by hand on VILLA ONE, 2026-09-28):
  *  - a PROP note OUTSIDE the sheet (template scraps parked beside the title block, e.g. CF57/CF6E/CF75 at x 40-64 on an
  *    ARCH D 36x24 sheet) never plots and has no Fase 1 meaning -> erase it;
- *  - a PROP note ON the sheet must be the MD-WASD notes MText -> drop every bullet that says PROP/PROPOSED, and the
- *    "THE FOLLOWING ACTIVITIES ..." block when its closing sentence says PROPOSED (its list has no predicate without it);
+ *  - a PROP note ON the sheet must be the MD-WASD notes MText -> drop every bullet that says PROP/PROPOSED (design wording).
+ *    The two standard existing-facility notes (ALLOWED_PROPOSED_PHRASES: the "ALL EXISTING MAINS ..." bullet and the
+ *    "THE FOLLOWING ACTIVITIES ON EXISTING WATER SERVICES ..." block) are kept (user 2026-10-02);
  *  - anything else -> refuse (edit by hand); never guess.
  * Pure functions: no MCP/zod imports, unit-tested in tests/fase1_prop_notes.test.ts.
  */
@@ -17,8 +18,26 @@
 export const stripMText = (value: unknown): string =>
   String(value ?? "").replace(/\\P/g, " ").replace(/\\[A-Za-z][^;\\]*;/g, "").replace(/[{}]/g, "");
 
-/** True when the text says PROP or PROPOSED as a word ("SUBJECT PROPERTY" is NOT a match). */
-export const isPropText = (value: unknown): boolean => /\bPROP\b|\bPROPOSED\b/i.test(stripMText(value));
+/**
+ * Standard WASD wording that says "PROPOSED" but governs EXISTING facilities, so it stays on a Fase 1 sheet (user 2026-10-02:
+ * existing networks and the notes that apply to work on them are never removed; the designer works from them). Only these two
+ * phrases are allowed; every other PROP / PROPOSED is design wording.
+ *  - bullet "ALL EXISTING MAINS BEING IMPACTED BY THIS PROJECT AND ALL PROPOSED WATER/SEWER/FORCE MAINS AND FITTINGS SHALL BE RESTRAINED PER GS 2.0"
+ *  - closing sentence of the block "THE FOLLOWING ACTIVITIES ON EXISTING WATER SERVICES AND OR EXISTING WATER MAINS ...": "... PRESENT FOR PROPOSED ACTIVITY."
+ */
+export const ALLOWED_PROPOSED_PHRASES: readonly RegExp[] = [
+  /\bALL\s+PROPOSED\s+WATER\/SEWER\/FORCE\s+MAINS\s+AND\s+FITTINGS\b/gi,
+  /\bPRESENT\s+FOR\s+PROPOSED\s+ACTIVITY\b/gi,
+];
+
+/** True when the text says PROP or PROPOSED as a word ("SUBJECT PROPERTY" and the allowed existing-facility phrases are NOT a match). */
+export const isPropText = (value: unknown): boolean => {
+  const text = ALLOWED_PROPOSED_PHRASES.reduce((t, re) => t.replace(re, " "), stripMText(value));
+  return /\bPROP\b|\bPROPOSED\b/i.test(text);
+};
+
+/** True when the text says PROP / PROPOSED anywhere, allowed phrases included (used to erase template scraps parked OFF the sheet). */
+export const saysPropWord = (value: unknown): boolean => /\bPROP\b|\bPROPOSED\b/i.test(stripMText(value));
 
 /** Paper-space extents of the sheet, in paper units. */
 export interface SheetExtents {

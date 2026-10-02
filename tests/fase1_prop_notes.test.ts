@@ -13,7 +13,14 @@ describe("fase1 PROP notes", () => {
     expect(stripMText("{\\fArial|b1|i0|c0|p34;A\\PB}")).toBe("A B");
   });
 
-  it("strips every PROP bullet and the PROPOSED-activity block from the real template notes, keeping the rest byte-for-byte", () => {
+  it("lets the two standard existing-facility phrases through, and nothing else with PROPOSED", () => {
+    expect(isPropText("ALL EXISTING MAINS BEING IMPACTED BY THIS PROJECT AND ALL PROPOSED WATER/SEWER/FORCE MAINS AND FITTINGS SHALL BE RESTRAINED PER GS 2.0")).toBe(false);
+    expect(isPropText("TO BE PRESENT FOR\\PPROPOSED ACTIVITY.")).toBe(false);
+    expect(isPropText("ALL PROPOSED SANITARY SEWER CLEAN-OUTS THAT ARE CONSTRUCTED IN GRASS AREAS")).toBe(true);
+    expect(isPropText("ALL PROPOSED WATER/SEWER/FORCE MAINS AND FITTINGS, AND PROP. SAN SEWER")).toBe(true);
+  });
+
+  it("strips every design PROP bullet but keeps the existing-facility notes (bullet + THE FOLLOWING ACTIVITIES block), the rest byte-for-byte", () => {
     expect(isPropText(CF80)).toBe(true);
     const result = stripPropNotes(CF80);
     expect(result.ok).toBe(true);
@@ -24,10 +31,17 @@ describe("fase1 PROP notes", () => {
     expect(result.text).toContain("DEFLECTIONS ARE TO BE 2.5 DEG. MAXIMUM.");
     expect(result.text).toContain("PROJECT SPECIFIC NOTES");
     expect(result.text).toContain("CONTRACTOR TO VERIFY BEFORE CONSTRUCTION");
-    // the "THE FOLLOWING ACTIVITIES ... FOR PROPOSED ACTIVITY" block goes as a whole
-    expect(result.text).not.toContain("THE FOLLOWING ACTIVITIES");
-    expect(result.removed.some((r) => r.startsWith("[block]"))).toBe(true);
-    expect(result.kept).toBeLessThan(result.total);
+    // existing-facility notes stay (user 2026-10-02): the "ALL EXISTING MAINS ..." bullet and the whole "THE FOLLOWING ACTIVITIES ..." block
+    expect(result.text).toContain("ALL EXISTING MAINS BEING IMPACTED BY THIS PROJECT");
+    expect(result.text).toContain("THE FOLLOWING ACTIVITIES");
+    expect(result.text).toContain("PRESENT FOR PROPOSED ACTIVITY");
+    expect(result.removed.some((r) => r.startsWith("[block]"))).toBe(false);
+    // design bullets (clean-outs, "IF PROP. SAN SEWER ...") still go
+    expect(result.text).not.toContain("CLEAN-OUTS");
+    expect(result.text).not.toContain("IF PROP.");
+    expect(result.kept).toBe(5);
+    expect(result.total).toBe(11);
+    expect(result.removed).toHaveLength(6);
     // formatting codes are untouched: the head of the MText is identical
     expect(result.text.slice(0, 120)).toBe(CF80.slice(0, 120));
   });

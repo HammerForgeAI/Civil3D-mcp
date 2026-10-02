@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { isPropText } from "../src/tools/domains/fase1PropNotes.js";
 import { documentMatches, runFase1Build, summarizeFase1Build, type PluginSend } from "../src/tools/domains/fase1Build.js";
 
 type Call = { method: string; params: Record<string, unknown> };
@@ -347,7 +348,9 @@ describe("fase1 build", () => {
     expect(log.find((c) => c.method === "eraseEntities")!.params.handles).toEqual(["CF57", "CF6E"]);
     const rewrite = log.find((c) => c.method === "updateTextContent")!;
     expect(rewrite.params.handle).toBe("CF80");
-    expect(String(rewrite.params.text)).not.toMatch(/\bPROP(OSED)?\b/);
+    // design wording is gone; the two existing-facility notes stay (ALLOWED_PROPOSED_PHRASES)
+    expect(isPropText(rewrite.params.text)).toBe(false);
+    expect(String(rewrite.params.text)).toContain("THE FOLLOWING ACTIVITIES ON EXISTING WATER SERVICES");
     expect(log.at(-1)!.method).toBe("saveDrawing");
   });
 

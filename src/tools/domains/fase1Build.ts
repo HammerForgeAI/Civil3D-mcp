@@ -19,7 +19,7 @@
  *
  * Kept free of MCP/zod imports so it can be unit-tested with a fake `send`, same as fase1Audit.ts.
  */
-import { DEFAULT_SHEET, isOffSheet, isPropText, stripPropNotes, type SheetExtents } from "./fase1PropNotes.js";
+import { DEFAULT_SHEET, isOffSheet, isPropText, saysPropWord, stripPropNotes, type SheetExtents } from "./fase1PropNotes.js";
 
 export type Fase1BuildStatus = "OK" | "FAIL" | "SKIPPED";
 
@@ -451,13 +451,14 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
       const found = (await send("listTextEntities", { space: "paper", contains: "PROP", limit: 500 })) as
         | { entities?: TextEntity[] }
         | undefined;
-      const props = (found?.entities ?? []).filter((e) => isPropText(e.text));
-      if (!props.length) {
+      const props = (found?.entities ?? []).filter((e) => saysPropWord(e.text));
+      const offSheet = props.filter((e) => isOffSheet(Number(e.x ?? 0), Number(e.y ?? 0), sheet));
+      // On the sheet only DESIGN wording counts: the standard existing-facility notes (ALLOWED_PROPOSED_PHRASES) stay.
+      const onSheet = props.filter((e) => !offSheet.includes(e) && isPropText(e.text));
+      if (!offSheet.length && !onSheet.length) {
         add(name, "OK", "none");
         return;
       }
-      const offSheet = props.filter((e) => isOffSheet(Number(e.x ?? 0), Number(e.y ?? 0), sheet));
-      const onSheet = props.filter((e) => !offSheet.includes(e));
       // Decide everything BEFORE writing: one unrecognized on-sheet note stops the step with nothing changed.
       const rewrites: { handle: string; text: string; removed: number }[] = [];
       for (const e of onSheet) {
