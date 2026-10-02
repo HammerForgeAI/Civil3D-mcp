@@ -339,6 +339,11 @@ public static class CommandDispatcher
       "addLabel" => LabelCommands.AddLabelAsync(parameters),
       "listStyles" => StyleCommands.ListStylesAsync(parameters),
       "getStyle" => StyleCommands.GetStyleAsync(parameters),
+      // Standards style creation (P5: port/p5-standards)
+      "createPointStyle" => StyleCreationCommands.CreatePointStyleAsync(parameters),
+      "createPointLabelStyle" => StyleCreationCommands.CreatePointLabelStyleAsync(parameters),
+      "createLineLabelStyle" => StyleCreationCommands.CreateLineLabelStyleAsync(parameters),
+      "setTextStyleFont" => StyleCreationCommands.SetTextStyleFontAsync(parameters),
       // Catchment management
       "listCatchmentGroups" => CatchmentCommands.ListCatchmentGroupsAsync(),
       "getCatchmentGroup" => CatchmentCommands.GetCatchmentGroupAsync(parameters),

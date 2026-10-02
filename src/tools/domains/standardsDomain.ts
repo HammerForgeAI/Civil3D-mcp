@@ -23,6 +23,14 @@ const StyleObjectTypeSchema = z.enum([
 
 const GenericStandardsResponseSchema = z.object({}).passthrough();
 
+/**
+ * Marker shapes the plugin implements for a custom point marker. The donor switch
+ * (KevinGriffin `Civil3dMcpBridge.cs:2185`) maps only these four; anything else would
+ * fall through to the default and create a marker the caller did not ask for, so the
+ * enum rejects it here instead.
+ */
+const PointMarkerTypeSchema = z.enum(["plus", "x", "dot", "vline"]);
+
 const StyleSummarySchema = z.object({
   name: z.string(),
   handle: z.string(),
@@ -36,6 +44,10 @@ const canonicalStandardsInputShape = {
     "label_list_styles",
     "style_list",
     "style_get",
+    "style_create_point",
+    "style_create_point_label",
+    "style_create_line_label",
+    "style_set_text_font",
     "lookup",
     "check_labels",
     "check_drawing_standards",
@@ -48,6 +60,13 @@ const canonicalStandardsInputShape = {
   station: z.number().optional(),
   point: LabelPointSchema.optional(),
   styleName: z.string().optional(),
+  description: z.string().optional(),
+  markerType: PointMarkerTypeSchema.optional(),
+  markerSize: z.number().positive().optional(),
+  useDrawingScale: z.boolean().optional(),
+  blockName: z.string().optional(),
+  rotation: z.number().optional(),
+  font: z.string().optional(),
   query: z.string().optional(),
   topic: z.string().optional(),
   tags: z.array(z.string()).optional(),
@@ -94,6 +113,35 @@ const StyleGetArgsSchema = z.object({
   action: z.literal("style_get"),
   objectType: StyleObjectTypeSchema,
   styleName: z.string(),
+});
+
+const StyleCreatePointArgsSchema = z.object({
+  action: z.literal("style_create_point"),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  markerType: PointMarkerTypeSchema.optional(),
+  markerSize: z.number().positive().optional(),
+  useDrawingScale: z.boolean().optional(),
+  blockName: z.string().min(1).optional(),
+  rotation: z.number().optional(),
+});
+
+const StyleCreatePointLabelArgsSchema = z.object({
+  action: z.literal("style_create_point_label"),
+  name: z.string().min(1),
+  description: z.string().optional(),
+});
+
+const StyleCreateLineLabelArgsSchema = z.object({
+  action: z.literal("style_create_line_label"),
+  name: z.string().min(1),
+  description: z.string().optional(),
+});
+
+const StyleSetTextFontArgsSchema = z.object({
+  action: z.literal("style_set_text_font"),
+  styleName: z.string().min(1),
+  font: z.string().min(1),
 });
 
 const StandardsLookupArgsSchema = z.object({
@@ -217,6 +265,87 @@ export const STANDARDS_DOMAIN_DEFINITION: DomainToolDefinition = {
         }),
       ),
     },
+    style_create_point: {
+      action: "style_create_point",
+      inputSchema: StyleCreatePointArgsSchema,
+      responseSchema: z.object({
+        created: z.boolean(),
+        name: z.string(),
+        handle: z.string().optional(),
+      }).passthrough(),
+      capabilities: ["create"],
+      requiresActiveDrawing: true,
+      safeForRetry: false,
+      pluginMethods: ["createPointStyle"],
+      execute: async (args) => await withApplicationConnection(
+        async (appClient) => await appClient.sendCommand("createPointStyle", {
+          name: args.name,
+          description: args.description,
+          markerType: args.markerType,
+          markerSize: args.markerSize,
+          useDrawingScale: args.useDrawingScale,
+          blockName: args.blockName,
+          rotation: args.rotation,
+        }),
+      ),
+    },
+    style_create_point_label: {
+      action: "style_create_point_label",
+      inputSchema: StyleCreatePointLabelArgsSchema,
+      responseSchema: z.object({
+        created: z.boolean(),
+        name: z.string(),
+        handle: z.string().optional(),
+      }).passthrough(),
+      capabilities: ["create"],
+      requiresActiveDrawing: true,
+      safeForRetry: false,
+      pluginMethods: ["createPointLabelStyle"],
+      execute: async (args) => await withApplicationConnection(
+        async (appClient) => await appClient.sendCommand("createPointLabelStyle", {
+          name: args.name,
+          description: args.description,
+        }),
+      ),
+    },
+    style_create_line_label: {
+      action: "style_create_line_label",
+      inputSchema: StyleCreateLineLabelArgsSchema,
+      responseSchema: z.object({
+        created: z.boolean(),
+        name: z.string(),
+        handle: z.string().optional(),
+      }).passthrough(),
+      capabilities: ["create"],
+      requiresActiveDrawing: true,
+      safeForRetry: false,
+      pluginMethods: ["createLineLabelStyle"],
+      execute: async (args) => await withApplicationConnection(
+        async (appClient) => await appClient.sendCommand("createLineLabelStyle", {
+          name: args.name,
+          description: args.description,
+        }),
+      ),
+    },
+    style_set_text_font: {
+      action: "style_set_text_font",
+      inputSchema: StyleSetTextFontArgsSchema,
+      responseSchema: z.object({
+        updated: z.boolean(),
+        styleName: z.string(),
+        font: z.string(),
+      }).passthrough(),
+      capabilities: ["edit"],
+      requiresActiveDrawing: true,
+      safeForRetry: false,
+      pluginMethods: ["setTextStyleFont"],
+      execute: async (args) => await withApplicationConnection(
+        async (appClient) => await appClient.sendCommand("setTextStyleFont", {
+          styleName: args.styleName,
+          font: args.font,
+        }),
+      ),
+    },
     lookup: {
       action: "lookup",
       inputSchema: StandardsLookupArgsSchema,
@@ -298,6 +427,10 @@ export const STANDARDS_DOMAIN_DEFINITION: DomainToolDefinition = {
         "label_list_styles",
         "style_list",
         "style_get",
+        "style_create_point",
+        "style_create_point_label",
+        "style_create_line_label",
+        "style_set_text_font",
         "lookup",
         "check_labels",
         "check_drawing_standards",
