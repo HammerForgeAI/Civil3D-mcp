@@ -782,7 +782,7 @@ disk, so it refuses an unsaved active drawing unless `requireSaved: false`.
 </details>
 
 <details>
-<summary><strong>Quantity Takeoff (8 tools)</strong></summary>
+<summary><strong>Quantity Takeoff (9 tools)</strong></summary>
 
 | Tool | Description |
 |------|-------------|
@@ -794,6 +794,7 @@ disk, so it refuses an unsaved active drawing unless `requireSaved: false`.
 | `civil3d_qty_parcel_areas` | Area, perimeter, and address data for parcels |
 | `civil3d_qty_point_count_by_group` | Count COGO points per point group |
 | `civil3d_qty_export_to_csv` | Export consolidated quantity takeoff report to CSV |
+| `civil3d_qty_export_to_xlsx` | Export a quantity takeoff bill of quantities to an Excel workbook |
 
 </details>
 
@@ -1092,6 +1093,15 @@ Xref (`attach`, `overlay`, `repath`), data-shortcut `data_shortcut_repair`, and
 CSV artifacts are written to a temporary file in the destination directory and
 then atomically moved into place. Existing files are rejected unless the tool
 call explicitly supplies `overwrite: true`.
+
+`civil3d_qty_export_to_xlsx` is the one export that the plugin does not write
+itself. The workbook needs a spreadsheet library, and `FileBoundary` exposes no
+byte-write method, so the MCP server builds the workbook and applies the same
+roots, extension, filesystem-link and `overwrite` rules through
+`src/utils/exportPathBoundary.ts` before any bytes are written. Two of the
+plugin's protections are not available in the server: it cannot lock the
+directory chain for the whole write, and it cannot re-check the written file for
+a single hard link.
 
 ### Plugin logging
 
