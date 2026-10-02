@@ -357,6 +357,12 @@ public static class CommandDispatcher
       "importStm" => StmCommands.ImportStmAsync(parameters),
       "openStormSanitaryAnalysis" => StmCommands.OpenStormSanitaryAnalysisAsync(parameters),
       "listSsaCapabilities" => StmCommands.ListSsaCapabilitiesAsync(),
+      // P11 escape hatches and instance selection (arms appended for this package).
+      // sendCommand and executeCSharpScript are approval-gated in the MCP server
+      // and require the approval token again inside the plugin.
+      "sendCommand" => RawCommandCommands.SendCommandAsync(parameters),
+      "executeCSharpScript" => ScriptHostCommands.ExecuteCSharpScriptAsync(parameters),
+      "getListenerInstance" => Task.FromResult<object?>(ListenerInstance.Describe()),
       _ => throw new JsonRpcDispatchException("CIVIL3D.METHOD_NOT_FOUND", $"Plugin method '{method}' is not implemented yet."),
     };
   }

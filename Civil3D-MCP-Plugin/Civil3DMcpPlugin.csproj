@@ -9,6 +9,27 @@
   </PropertyGroup>
   <Import Project="GeneratedVersion.props" />
 
+  <!--
+    P11 item 1: the gated C# script host. This is the project's FIRST and only
+    PackageReference; every reference below it is still a file path into the
+    licensed Civil 3D reference directory, and nothing else was reordered.
+    Roslyn's DLLs are copied to the plugin output so the script host can load
+    them from inside Civil 3D. The package is pinned; no floating version.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.12.0" />
+  </ItemGroup>
+
+  <!--
+    A library project does not copy NuGet package assemblies to its output, so
+    Roslyn's DLLs would stay in the NuGet cache and the script host could not
+    load them from inside Civil 3D. The Autodesk references above keep their
+    <Private>False</Private>, so only package assemblies are copied.
+  -->
+  <PropertyGroup>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
   <Target Name="ValidateCivil3DReferences" BeforeTargets="PrepareForBuild">
     <Error Condition="!Exists('$(Civil3DReferencesPath)\accoremgd.dll') Or !Exists('$(Civil3DReferencesPath)\AcDbMgd.dll') Or !Exists('$(Civil3DReferencesPath)\acmgd.dll') Or !Exists('$(Civil3DReferencesPath)\AecBaseMgd.dll') Or !Exists('$(Civil3DReferencesPath)\AeccDbMgd.dll') Or !Exists('$(Civil3DReferencesPath)\AeccPressurePipesMgd.dll')"
       Text="Civil 3D 2026 managed references were not found at '$(Civil3DReferencesPath)'. Set /p:Civil3DReferencesPath=&lt;licensed Civil 3D/ObjectARX reference directory&gt;. Autodesk assemblies must not be committed." />

@@ -364,6 +364,40 @@ internal static class Civil3DCompatibility
     }
   }
 
+  /// <summary>
+  /// The reference set for the gated C# script host (P11 item 1). Roslyn needs
+  /// every assembly the Civil 3D process has loaded, and enumerating the app
+  /// domain is the one reflection call the plugin keeps inside this boundary:
+  /// tests/reflection_boundary.test.ts forbids it in every other file, so the
+  /// script host calls this method instead of enumerating assemblies itself.
+  /// Only assemblies with a location are returned — a dynamic assembly cannot
+  /// be referenced, and Roslyn rejects a reference without a file.
+  /// </summary>
+  public static IReadOnlyList<Assembly> GetLoadedScriptReferenceAssemblies()
+  {
+    var assemblies = new List<Assembly>();
+    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+    {
+      try
+      {
+        if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location))
+        {
+          continue;
+        }
+
+        assemblies.Add(assembly);
+      }
+      catch
+      {
+        // An assembly that cannot report a location simply drops out of the
+        // reference set; the script host still reports a compile error naming
+        // whatever type it could not resolve.
+      }
+    }
+
+    return assemblies;
+  }
+
   public static Type? FindLoadedType(params string[] fullNames)
   {
     foreach (var fullName in fullNames)
