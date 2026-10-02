@@ -17,8 +17,14 @@
  * every plugin call acts on the ACTIVE document, so nothing is written until the active document
  * matches `expectedDocument` (or `saveAs`), and the match is checked again right before saving.
  *
+ * Item 19: every path this build imports passes `resolveGatedImportPath` (importGate.ts) before the
+ * command is sent, so a path outside the configured import roots, or a file whose extension the
+ * action does not allow, is refused in Node and never reaches the plugin. The three import call
+ * sites are the template drawing, the xrefs, and the block-definition imports.
+ *
  * Kept free of MCP/zod imports so it can be unit-tested with a fake `send`, same as fase1Audit.ts.
  */
+import { resolveGatedImportPath } from "../importGate.js";
 import { DEFAULT_SHEET, isOffSheet, isPropText, saysPropWord, stripPropNotes, type SheetExtents } from "./fase1PropNotes.js";
 import { toHardenedXrefInsert } from "./xrefParams.js";
 
@@ -185,6 +191,20 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
   };
 
   const expected = options.expectedDocument ?? options.saveAs;
+
+  /**
+   * Item 19 refusal gate at an import call site. Returns the path to send, or null after recording
+   * FAIL when the gate refuses -- so the refused path never reaches `send`.
+   */
+  const gatedImportPath = (name: string, rawPath: string, allowedExtensions: readonly string[]): string | null => {
+    try {
+      return resolveGatedImportPath(rawPath, allowedExtensions);
+    } catch (error) {
+      fail(name, error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  };
+
   const checkActiveDocument = async (name: string): Promise<void> => {
     if (aborted) {
       add(name, "SKIPPED", "an earlier step failed");
@@ -238,10 +258,13 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
   // 1-2: open the template and give it a real path (mirrors the recipe's steps 5-6: civil3d_drawing
   // new templatePath=... -> save saveAs=... overwrite:true -- there is no "open a file" RPC).
   if (options.templatePath) {
-    const created = await call("open template", "newDrawing", { templatePath: options.templatePath });
-    // "save as" renames whatever is ACTIVE: make sure that is the drawing just created, not the guide / a delivered file.
-    if (created && typeof created.drawingName === "string") {
-      await checkNewDrawingActive(created.drawingName);
+    const templatePath = gatedImportPath("open template", options.templatePath, [".dwg", ".dwt"]);
+    if (templatePath !== null) {
+      const created = await call("open template", "newDrawing", { templatePath });
+      // "save as" renames whatever is ACTIVE: make sure that is the drawing just created, not the guide / a delivered file.
+      if (created && typeof created.drawingName === "string") {
+        await checkNewDrawingActive(created.drawingName);
+      }
     }
   }
   if (options.saveAs) {
@@ -254,8 +277,11 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
   // 3: xrefs (step 7 -- Overlay, the firm's hard rule; default true here too, which selects the
   // plugin's overlayXref command. overlay:false selects attachXref, the cascading form.)
   for (const xref of options.xrefs ?? []) {
-    const insert = toHardenedXrefInsert(xref);
-    await call(`xref ${fileName(xref.filePath)}`, insert.command, insert.parameters);
+    const label = `xref ${fileName(xref.filePath)}`;
+    const xrefPath = gatedImportPath(label, xref.filePath, [".dwg"]);
+    if (xrefPath === null) continue;
+    const insert = toHardenedXrefInsert({ ...xref, filePath: xrefPath });
+    await call(label, insert.command, insert.parameters);
   }
 
   // 3b: hide xref layers that print duplicated on the sheet (VILLA ONE 2026-10-01: the survey's own R/W dims on X-TOPO|DIM,
@@ -304,13 +330,18 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
     const label = `import block "${imp.blockName}"`;
     if (idx >= 0) {
       const first = entities[idx];
+      // Take the first copy out of the batch before the gate runs: a refused source cannot define the
+      // block, so leaving it in would only make the batch below fail on an undefined block.
+      entities = [...entities.slice(0, idx), ...entities.slice(idx + 1)];
+      const sourceFilePath = gatedImportPath(label, imp.sourceFilePath, [".dwg"]);
+      if (sourceFilePath === null) continue;
       // the first copy is placed by insertBlockReference, which drops a block on the CURRENT layer when its own layer does not exist
       // yet (createEntities makes `layers` only later): define that layer first when the payload describes it
       const layerDef = typeof first.layer === "string" ? (options.layers?.[first.layer] as Loose | undefined) : undefined;
       if (layerDef) await call(`layer ${String(first.layer)}`, "createOrUpdateLayer", { name: first.layer, ...layerDef });
       await call(label, "insertBlockReference", {
         blockName: imp.blockName,
-        sourceFilePath: imp.sourceFilePath,
+        sourceFilePath,
         x: first.x,
         y: first.y,
         z: first.z,
@@ -320,7 +351,6 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
         scaleZ: first.scale ?? first.scaleZ,
         layer: first.layer,
       });
-      entities = [...entities.slice(0, idx), ...entities.slice(idx + 1)];
     } else {
       add(label, "SKIPPED", "no block entity with that blockName in the batch");
     }

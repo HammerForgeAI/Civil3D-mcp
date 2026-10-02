@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { withApplicationConnection } from "../../utils/ConnectionManager.js";
 import type { DomainToolDefinition } from "../domainRuntime.js";
+import { FbkParseArgsSchema, FBK_PARSE_RESPONSE_SCHEMA } from "./surveyFbk.js";
 
 const GenericSurveyResponseSchema = z.object({}).passthrough();
 
@@ -10,11 +11,13 @@ const canonicalSurveyInputShape = {
     "figure_list",
     "figure_get",
     "observation_list",
+    "fbk_parse",
   ]),
   name: z.string().optional(),
   databaseName: z.string().optional(),
   networkName: z.string().optional(),
   observationType: z.enum(["all", "angles", "distances", "directions", "gps"]).optional(),
+  filePath: z.string().optional(),
 };
 
 const SurveyDatabaseListArgsSchema = z.object({
@@ -150,6 +153,21 @@ export const SURVEY_DOMAIN_DEFINITION: DomainToolDefinition = {
         }),
       ),
     },
+    fbk_parse: {
+      action: "fbk_parse",
+      inputSchema: FbkParseArgsSchema,
+      responseSchema: FBK_PARSE_RESPONSE_SCHEMA,
+      capabilities: ["query", "inspect"],
+      // Parsing a file touches no drawing and no COM object; it is the donor's dry run.
+      requiresActiveDrawing: false,
+      safeForRetry: true,
+      pluginMethods: ["parseFbk"],
+      execute: async (args) => await withApplicationConnection(
+        async (appClient) => await appClient.sendCommand("parseFbk", {
+          filePath: args.filePath,
+        }),
+      ),
+    },
     network_adjust: {
       action: "network_adjust",
       inputSchema: SurveyNetworkAdjustArgsSchema,
@@ -212,13 +230,14 @@ export const SURVEY_DOMAIN_DEFINITION: DomainToolDefinition = {
     {
       toolName: "civil3d_survey",
       displayName: "Civil 3D Survey",
-      description: "Lists Civil 3D survey databases, figures, and observations through a single managed-API tool. Survey creation, import, and adjustment remain native Survey command workflows.",
+      description: "Lists Civil 3D survey databases, figures, and observations through a single managed-API tool, and parses a field book (.fbk) file into its points, setups, observations and derived angles. Survey creation, import, and adjustment remain native Survey command workflows; the field-book IMPORT is deliberately not exposed (it needs the AutoCAD IMPORTFIELDBOOK command and Survey COM Interop this fork does not reference), only the parser.",
       inputShape: canonicalSurveyInputShape,
       supportedActions: [
         "database_list",
         "figure_list",
         "figure_get",
         "observation_list",
+        "fbk_parse",
       ],
       resolveAction: (rawArgs) => ({
         action: String(rawArgs.action ?? ""),
@@ -273,6 +292,17 @@ export const SURVEY_DOMAIN_DEFINITION: DomainToolDefinition = {
           networkName: rawArgs.networkName,
           observationType: rawArgs.observationType,
         },
+      }),
+    },
+    {
+      toolName: "civil3d_survey_fbk_parse",
+      displayName: "Civil 3D Survey Field Book Parse",
+      description: "Parses a Civil 3D field book (.fbk) file: coordinate points (NEZ), station setups (STN), backsights (BS), azimuths (AZ), target heights (PRISM) and observations (F1/F2), with the angles converted out of their DMS-packed DDD.MMSSsss form. Read-only: it opens the file through the plugin's import boundary and touches no drawing. The IMPORT is not offered.",
+      inputShape: { filePath: z.string() },
+      supportedActions: ["fbk_parse"],
+      resolveAction: (rawArgs) => ({
+        action: "fbk_parse",
+        args: { action: "fbk_parse", filePath: rawArgs.filePath },
       }),
     },
   ],
