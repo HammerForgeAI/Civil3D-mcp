@@ -234,6 +234,30 @@ describe("fase1 build", () => {
     expect(batch).toHaveLength(2); // the second EXIST ARROW + the mtext
   });
 
+  it("applies native plan labels right after the entity batch, with no profileViewName, and fails the step when a label fails", async () => {
+    const labels = [
+      { type: "NoteLabel", style: "EOP", anchor: { x: 1, y: 2 }, labelLocation: { x: 3, y: 4 }, layer: "C-ANNO" },
+      { type: "StationOffsetLabel", style: "ALGN START", alignmentName: "SW 118TH AVE", location: { x: 5, y: 6 }, layer: "C-ROAD-TEXT" },
+    ];
+    const log: Call[] = [];
+    const steps = await runFase1Build(fakePlugin({ ...happyResponses, profileViewApplyAnnotations: { createdLabels: 2, failedLabels: 0, labels: [] } }, log), {
+      expectedDocument: "PROJECT FASE 1.dwg", entities: [{ kind: "mtext", text: "x" }], planLabels: labels, save: false,
+    });
+    const apply = log.find((c) => c.method === "profileViewApplyAnnotations")!;
+    expect(apply.params).toEqual({ labels });
+    expect("profileViewName" in apply.params).toBe(false);
+    expect(log.indexOf(apply)).toBeGreaterThan(log.findIndex((c) => c.method === "createEntities"));
+    expect(steps.find((s) => s.name === "apply 2 plan labels")!.status).toBe("OK");
+
+    const failLog: Call[] = [];
+    const failed = await runFase1Build(fakePlugin({ ...happyResponses, profileViewApplyAnnotations: { createdLabels: 1, failedLabels: 1, labels: [{ index: 0 }, { index: 1, error: "style 'ALGN START' not found" }] } }, failLog), {
+      expectedDocument: "PROJECT FASE 1.dwg", planLabels: labels, save: false,
+    });
+    const bad = failed.find((s) => s.status === "FAIL")!;
+    expect(bad.name).toContain("plan labels: 1 of 2 failed");
+    expect(bad.detail ?? "").toContain("ALGN START");
+  });
+
   it("skips the block import when no matching block entity is in the batch, and still builds the rest", async () => {
     const log: Call[] = [];
     const steps = await runFase1Build(fakePlugin(happyResponses, log), {

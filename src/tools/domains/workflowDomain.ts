@@ -71,6 +71,7 @@ function buildWorkflowResult(
 // geometryDomain's DraftEntitySchema -- the plugin's createEntities call still validates them; this
 // just forwards the batch, so it can't drift out of sync with that schema as it evolves.
 const Fase1BuildEntitySchema = z.object({ kind: z.string() }).catchall(z.unknown());
+const Fase1BuildPlanLabelSchema = z.object({ type: z.enum(["NoteLabel", "StationOffsetLabel"]), style: z.string() }).catchall(z.unknown());
 const Fase1BuildXrefSchema = z.object({
   filePath: z.string(),
   layer: z.string().optional(),
@@ -133,6 +134,7 @@ const canonicalWorkflowInputShape = {
   clImport: Fase1BuildClImportSchema.optional(),
   blockImports: z.array(Fase1BuildClImportSchema).optional(),
   entities: z.array(Fase1BuildEntitySchema).optional(),
+  planLabels: z.array(Fase1BuildPlanLabelSchema).optional(),
   layers: z.record(z.string(), z.unknown()).optional(),
   entitySpace: z.enum(["model", "paper"]).optional(),
   entityLayout: z.string().optional(),
@@ -292,6 +294,7 @@ const Fase1BuildArgsSchema = z.object({
   clImport: Fase1BuildClImportSchema.optional(),
   blockImports: z.array(Fase1BuildClImportSchema).optional(),
   entities: z.array(Fase1BuildEntitySchema).optional(),
+  planLabels: z.array(Fase1BuildPlanLabelSchema).optional(),
   layers: z.record(z.string(), z.unknown()).optional(),
   entitySpace: z.enum(["model", "paper"]).optional(),
   entityLayout: z.string().optional(),
@@ -617,6 +620,7 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
           clImport: args.clImport as Parameters<typeof runFase1Build>[1]["clImport"],
           blockImports: args.blockImports as Parameters<typeof runFase1Build>[1]["blockImports"],
           entities: args.entities as Parameters<typeof runFase1Build>[1]["entities"],
+          planLabels: args.planLabels as Parameters<typeof runFase1Build>[1]["planLabels"],
           layers: args.layers as Record<string, unknown> | undefined,
           entitySpace: args.entitySpace as "model" | "paper" | undefined,
           entityLayout: args.entityLayout as string | undefined,
@@ -1146,6 +1150,7 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
         clImport: Fase1BuildClImportSchema.optional(),
         blockImports: z.array(Fase1BuildClImportSchema).optional(),
         entities: z.array(Fase1BuildEntitySchema).optional(),
+        planLabels: z.array(Fase1BuildPlanLabelSchema).optional(),
         layers: z.record(z.string(), z.unknown()).optional(),
         entitySpace: z.enum(["model", "paper"]).optional(),
         entityLayout: z.string().optional(),

@@ -239,7 +239,8 @@ const AnnotationItemSchema = z.object({}).passthrough();
 
 const ProfileViewApplyAnnotationsArgsSchema = z.object({
   action: z.literal("view_apply_annotations"),
-  profileViewName: z.string(),
+  // optional: without it only plan labels (NoteLabel / StationOffsetLabel) are applied (e.g. a Fase 1 sheet has no profile view)
+  profileViewName: z.string().optional(),
   style: z.string().optional(),
   bandSetStyle: z.string().optional(),
   clearBands: z.boolean().optional(),

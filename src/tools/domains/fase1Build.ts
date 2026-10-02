@@ -91,6 +91,12 @@ export interface Fase1BuildOptions {
   /** More block definitions to import from another DWG, same as clImport (e.g. "EXIST ARROW" / "FH" from the package C-300 for the utility labels). */
   blockImports?: Fase1BuildClImport[];
   entities?: Fase1BuildEntity[];
+  /**
+   * Native Civil 3D plan labels (no profile view): { type: "NoteLabel", style, anchor:{x,y}, labelLocation:{x,y}, layer? } for the EOP / R/W notes and
+   * { type: "StationOffsetLabel", style, alignmentName, location:{x,y}, labelLocation, layer?, markerStyle?, overrides:[{index,text}] } for the alignment
+   * start/end notes. Applied right after the entity batch through profileViewApplyAnnotations WITHOUT profileViewName (the styles must exist in the template).
+   */
+  planLabels?: Array<Record<string, unknown>>;
   layers?: Record<string, unknown>;
   /** Xref layers to freeze after attaching the xrefs (e.g. "X-TOPO|DIM": the survey's own R/W dims that duplicate the sheet's). */
   freezeLayers?: string[];
@@ -330,6 +336,16 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
       space: options.entitySpace,
       layout: options.entityLayout,
     });
+  }
+
+  // 6b: native plan labels (EOP / EXIST R/W notes + alignment start/end station-offset labels). One call; a label that failed makes the step fail.
+  if (options.planLabels?.length) {
+    const result = await call(`apply ${options.planLabels.length} plan labels`, "profileViewApplyAnnotations", { labels: options.planLabels });
+    const failed = Number(result?.failedLabels ?? 0);
+    if (result && failed > 0) {
+      const first = (Array.isArray(result.labels) ? (result.labels as Loose[]) : []).find((l) => typeof l.error === "string");
+      fail(`plan labels: ${failed} of ${options.planLabels.length} failed`, `first: #${String(first?.index ?? "?")} ${String(first?.error ?? "unknown error")}`);
+    }
   }
 
   // 7: viewport + Model-tab twist (steps 11 and 11b -- pass both in `twists`; without viewportHandle

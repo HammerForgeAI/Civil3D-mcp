@@ -297,7 +297,9 @@ public static class ProfileViewAnnotationCommands
 
   public static Task<object?> ProfileViewApplyAnnotationsAsync(JsonObject? parameters)
   {
-    var profileViewName = PluginRuntime.GetRequiredString(parameters, "profileViewName");
+    // profileViewName is optional: without it only the plan labels (NoteLabel / StationOffsetLabel, model space) are applied, which is what a
+    // Fase 1 sheet needs (EOP / R/W notes and the alignment start/end labels have no profile view).
+    var profileViewName = PluginRuntime.GetOptionalString(parameters, "profileViewName");
     var styleName = PluginRuntime.GetOptionalString(parameters, "style");
     var bandSetStyleName = PluginRuntime.GetOptionalString(parameters, "bandSetStyle");
     var clearBands = PluginRuntime.GetOptionalBool(parameters, "clearBands") ?? false;
@@ -307,6 +309,16 @@ public static class ProfileViewAnnotationCommands
 
     return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
     {
+      if (string.IsNullOrWhiteSpace(profileViewName))
+      {
+        if (!string.IsNullOrWhiteSpace(styleName) || !string.IsNullOrWhiteSpace(bandSetStyleName) || clearBands || (groupSpecs?.Count ?? 0) > 0)
+        {
+          throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "style, bandSetStyle, clearBands and labelGroups need profileViewName; without it only plan labels (NoteLabel, StationOffsetLabel) are applied.");
+        }
+
+        return ApplyPlanLabelsOnly(labelSpecs, database, transaction, civilDoc.Styles, civilDoc.Styles.LabelStyles);
+      }
+
       var found = EnumerateProfileViews(database, transaction)
         .FirstOrDefault(view => string.Equals(view.Name, profileViewName, StringComparison.OrdinalIgnoreCase))
         ?? throw new JsonRpcDispatchException("CIVIL3D.OBJECT_NOT_FOUND", $"Profile view '{profileViewName}' was not found in model space.");
@@ -478,26 +490,9 @@ public static class ProfileViewAnnotationCommands
     var style = PluginRuntime.GetRequiredString(spec, "style");
     var ratio = PluginRuntime.GetOptionalDouble(spec, "ratio") ?? 0.5;
 
-    if (type == nameof(NoteLabel))
+    if (type == nameof(NoteLabel) || type == nameof(StationOffsetLabel))
     {
-      var anchor = ReadPoint(spec, "anchor") ?? ReadPoint(spec, "labelLocation")
-        ?? throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "a NoteLabel needs anchor {x,y}.");
-      var markerName = PluginRuntime.GetOptionalString(spec, "markerStyle");
-      var markerId = string.IsNullOrWhiteSpace(markerName) ? ObjectId.Null : FindStyle(transaction, markerName!, styles.MarkerStyles);
-      return NoteLabel.Create(new Point3d(anchor.X, anchor.Y, 0),
-        RequireStyle(transaction, style, "note label", labelStyles.GeneralNoteLabelStyles), markerId);
-    }
-
-    if (type == nameof(StationOffsetLabel))
-    {
-      var alignmentName = PluginRuntime.GetRequiredString(spec, "alignmentName");
-      var alignment = CivilObjectUtils.FindAlignmentByName(CivilApplication.ActiveDocument, transaction, alignmentName);
-      var location = ReadPoint(spec, "location")
-        ?? throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "a StationOffsetLabel needs location {x,y} (the labeled point).");
-      var markerName = PluginRuntime.GetOptionalString(spec, "markerStyle");
-      var markerId = string.IsNullOrWhiteSpace(markerName) ? ObjectId.Null : FindStyle(transaction, markerName!, styles.MarkerStyles);
-      return StationOffsetLabel.Create(alignment.ObjectId,
-        RequireStyle(transaction, style, "station offset label", labelStyles.AlignmentLabelStyles.StationOffsetLabelStyles), markerId, location);
+      return CreatePlanLabel(type, spec, style, transaction, labelStyles, styles);
     }
 
     if (type == nameof(StationElevationLabel))
@@ -689,6 +684,81 @@ public static class ProfileViewAnnotationCommands
       && (alignmentName == null || string.Equals(label.Alignment, alignmentName, StringComparison.OrdinalIgnoreCase))
       && label.Anchor.GetDistanceTo(anchor.Value) < 0.01);
     return match.Id;
+  }
+
+  // NoteLabel / StationOffsetLabel: model-space labels with no profile view behind them.
+  private static ObjectId CreatePlanLabel(string type, JsonObject spec, string style, Transaction transaction, LabelStylesRoot labelStyles, StylesRoot styles)
+  {
+    if (type == nameof(NoteLabel))
+    {
+      var anchor = ReadPoint(spec, "anchor") ?? ReadPoint(spec, "labelLocation")
+        ?? throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "a NoteLabel needs anchor {x,y}.");
+      var markerName = PluginRuntime.GetOptionalString(spec, "markerStyle");
+      var markerId = string.IsNullOrWhiteSpace(markerName) ? ObjectId.Null : FindStyle(transaction, markerName!, styles.MarkerStyles);
+      return NoteLabel.Create(new Point3d(anchor.X, anchor.Y, 0),
+        RequireStyle(transaction, style, "note label", labelStyles.GeneralNoteLabelStyles), markerId);
+    }
+
+    if (type == nameof(StationOffsetLabel))
+    {
+      var alignmentName = PluginRuntime.GetRequiredString(spec, "alignmentName");
+      var alignment = CivilObjectUtils.FindAlignmentByName(CivilApplication.ActiveDocument, transaction, alignmentName);
+      var location = ReadPoint(spec, "location")
+        ?? throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "a StationOffsetLabel needs location {x,y} (the labeled point).");
+      var markerName = PluginRuntime.GetOptionalString(spec, "markerStyle");
+      var markerId = string.IsNullOrWhiteSpace(markerName) ? ObjectId.Null : FindStyle(transaction, markerName!, styles.MarkerStyles);
+      return StationOffsetLabel.Create(alignment.ObjectId,
+        RequireStyle(transaction, style, "station offset label", labelStyles.AlignmentLabelStyles.StationOffsetLabelStyles), markerId, location);
+    }
+
+    throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"plan label type '{type}' is not supported; use NoteLabel or StationOffsetLabel.");
+  }
+
+  private static object? ApplyPlanLabelsOnly(JsonArray? labelSpecs, Database database, Transaction transaction, StylesRoot styles, LabelStylesRoot labelStyles)
+  {
+    var planLabels = CollectPlanLabels(database, transaction);
+    var labelResults = new List<Dictionary<string, object?>>();
+    for (var index = 0; index < (labelSpecs?.Count ?? 0); index++)
+    {
+      var entry = new Dictionary<string, object?> { ["index"] = index };
+      try
+      {
+        var spec = labelSpecs![index] as JsonObject ?? throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", "label spec must be an object.");
+        var type = PluginRuntime.GetRequiredString(spec, "type");
+        var style = PluginRuntime.GetRequiredString(spec, "style");
+        if (type != nameof(NoteLabel) && type != nameof(StationOffsetLabel))
+        {
+          throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"without profileViewName only NoteLabel and StationOffsetLabel can be applied (got '{type}').");
+        }
+
+        // Re-applying the same spec moves / re-texts the existing label instead of stacking a duplicate on its anchor.
+        var labelId = FindExistingPlanLabel(spec, planLabels);
+        if (labelId.IsNull)
+        {
+          labelId = CreatePlanLabel(type, spec, style, transaction, labelStyles, styles);
+        }
+        else
+        {
+          entry["reused"] = true;
+        }
+
+        ApplyLabelPlacement(spec, labelId, transaction, database);
+        entry["handle"] = labelId.Handle.ToString();
+      }
+      catch (System.Exception ex)
+      {
+        entry["error"] = ex.Message;
+      }
+
+      labelResults.Add(entry);
+    }
+
+    return new Dictionary<string, object?>
+    {
+      ["labels"] = labelResults,
+      ["createdLabels"] = labelResults.Count(entry => entry.ContainsKey("handle")),
+      ["failedLabels"] = labelResults.Count(entry => entry.ContainsKey("error")),
+    };
   }
 
   private static void ApplyLabelPlacement(JsonObject spec, ObjectId labelId, Transaction transaction, Database database)
