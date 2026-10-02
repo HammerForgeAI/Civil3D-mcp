@@ -15,7 +15,7 @@ public static partial class CivilExecution
   // after issuing commands.
   public static async Task<T> ExecuteCommandSequenceAsync<T>(Func<Document, CancellationToken, Task<T>> action)
   {
-    return await ExecuteSerializedAsync(async () =>
+    return await ExecuteSerializedAsync(async cancellationToken =>
     {
       // Fail fast with no document: the command-context hop below never fires
       // without one, and the request would hold the host gate indefinitely.
@@ -24,7 +24,6 @@ public static partial class CivilExecution
         throw new JsonRpcDispatchException("CIVIL3D.NO_DRAWING", "No active drawing is open in Civil 3D.");
       }
 
-      var cancellationToken = PluginRuntime.GetCurrentRequestCancellationToken();
       T? result = default;
       Exception? capturedException = null;
 

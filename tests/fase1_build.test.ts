@@ -38,7 +38,7 @@ const happyResponses: Record<string, Responder> = {
   newDrawing: { name: "Drawing2.dwg" },
   saveDrawing: { saved: true },
   listOpenDocuments: openDocs(TARGET),
-  attachXref: { xrefName: "X-TOPO" },
+  overlayXref: { name: "X-TOPO" },
   createAlignment: { name: "SW 118TH AVE" },
   insertBlockReference: { handle: "AAA1" },
   createEntities: { createdCount: 2 },
@@ -68,7 +68,7 @@ function templateSession(responses: Record<string, Responder>): Record<string, R
   };
 }
 
-const mutating = ["attachXref", "createAlignment", "insertBlockReference", "createEntities", "setViewportTwist", "updateTextContent", "eraseEntities"];
+const mutating = ["overlayXref", "createAlignment", "insertBlockReference", "createEntities", "setViewportTwist", "updateTextContent", "eraseEntities"];
 
 describe("fase1 build", () => {
   it("runs every step in order and reports OK for a clean pipeline", async () => {
@@ -91,8 +91,8 @@ describe("fase1 build", () => {
       "listOpenDocuments", // the new drawing is the active one
       "saveDrawing", // save as
       "listOpenDocuments", // guard: saveAs is the expected document
-      "attachXref",
-      "attachXref",
+      "overlayXref",
+      "overlayXref",
       "createAlignment",
       "createEntities",
       "setViewportTwist",
@@ -160,7 +160,7 @@ describe("fase1 build", () => {
   it("stops at the first failing step and marks the rest skipped, without undoing what already ran", async () => {
     const log: Call[] = [];
     const steps = await runFase1Build(
-      fakePlugin(templateSession({ ...happyResponses, attachXref: new Error("file not found") }), log),
+      fakePlugin(templateSession({ ...happyResponses, overlayXref: new Error("file not found") }), log),
       {
         templatePath: "C-300 template.dwg",
         saveAs: TARGET,
@@ -426,7 +426,7 @@ describe("fase1 build", () => {
     expect(steps.every((s) => s.status === "OK")).toBe(true);
     // after the xref, and only one write (the visible layer)
     const order = log.map((c) => c.method);
-    expect(order.indexOf("attachXref")).toBeLessThan(order.indexOf("listLayers"));
+    expect(order.indexOf("overlayXref")).toBeLessThan(order.indexOf("listLayers"));
     expect(log.filter((c) => c.method === "createOrUpdateLayer").map((c) => c.params.name)).toEqual(["X-TOPO|DIM"]);
   });
 

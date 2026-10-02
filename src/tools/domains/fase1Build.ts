@@ -20,6 +20,7 @@
  * Kept free of MCP/zod imports so it can be unit-tested with a fake `send`, same as fase1Audit.ts.
  */
 import { DEFAULT_SHEET, isOffSheet, isPropText, saysPropWord, stripPropNotes, type SheetExtents } from "./fase1PropNotes.js";
+import { toHardenedXrefInsert } from "./xrefParams.js";
 
 export type Fase1BuildStatus = "OK" | "FAIL" | "SKIPPED";
 
@@ -250,19 +251,11 @@ export async function runFase1Build(send: PluginSend, options: Fase1BuildOptions
   // Guard: nothing below may touch a drawing other than the target (the guide / a delivered FASE 1 can be open too).
   await checkActiveDocument("check active document");
 
-  // 3: xrefs (step 7 -- Overlay, the firm's hard rule; default true here too)
+  // 3: xrefs (step 7 -- Overlay, the firm's hard rule; default true here too, which selects the
+  // plugin's overlayXref command. overlay:false selects attachXref, the cascading form.)
   for (const xref of options.xrefs ?? []) {
-    await call(`xref ${fileName(xref.filePath)}`, "attachXref", {
-      filePath: xref.filePath,
-      overlay: xref.overlay ?? true,
-      xrefName: xref.xrefName,
-      layer: xref.layer,
-      x: xref.x,
-      y: xref.y,
-      z: xref.z,
-      scale: xref.scale,
-      rotation: xref.rotation,
-    });
+    const insert = toHardenedXrefInsert(xref);
+    await call(`xref ${fileName(xref.filePath)}`, insert.command, insert.parameters);
   }
 
   // 3b: hide xref layers that print duplicated on the sheet (VILLA ONE 2026-10-01: the survey's own R/W dims on X-TOPO|DIM,

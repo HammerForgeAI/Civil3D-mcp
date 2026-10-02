@@ -1,82 +1,11 @@
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
-using Autodesk.AutoCAD.Geometry;
 using System.Text.Json.Nodes;
 
 namespace Civil3DMcpPlugin;
 
 public static class LayerXrefCommands
 {
-  public static Task<object?> AttachXrefAsync(JsonObject? parameters)
-  {
-    var filePath = PluginRuntime.GetRequiredString(parameters, "filePath");
-    var overlay = PluginRuntime.GetOptionalBool(parameters, "overlay") ?? true;
-    var xrefName = PluginRuntime.GetOptionalString(parameters, "xrefName");
-    var layerName = PluginRuntime.GetOptionalString(parameters, "layer");
-    var x = PluginRuntime.GetOptionalDouble(parameters, "x") ?? 0d;
-    var y = PluginRuntime.GetOptionalDouble(parameters, "y") ?? 0d;
-    var z = PluginRuntime.GetOptionalDouble(parameters, "z") ?? 0d;
-    var scale = PluginRuntime.GetOptionalDouble(parameters, "scale") ?? 1d;
-    var rotation = PluginRuntime.GetOptionalDouble(parameters, "rotation") ?? 0d;
-
-    if (!File.Exists(filePath))
-    {
-      throw new JsonRpcDispatchException("CIVIL3D.INVALID_INPUT", $"Xref source file '{filePath}' does not exist.");
-    }
-
-    var blockName = string.IsNullOrWhiteSpace(xrefName)
-      ? Path.GetFileNameWithoutExtension(filePath)
-      : xrefName;
-
-    return CivilExecution.WriteAsync<object?>((doc, civilDoc, database, transaction) =>
-    {
-      ObjectId xrefBtrId;
-      try
-      {
-        xrefBtrId = overlay
-          ? database.OverlayXref(filePath, blockName)
-          : database.AttachXref(filePath, blockName);
-      }
-      catch (Exception ex)
-      {
-        throw new JsonRpcDispatchException("CIVIL3D.API_ERROR", $"Failed to {(overlay ? "overlay" : "attach")} xref '{filePath}': {ex.Message}");
-      }
-
-      var blockTable = CivilObjectUtils.GetRequiredObject<BlockTable>(transaction, database.BlockTableId, OpenMode.ForRead);
-      var modelSpace = CivilObjectUtils.GetRequiredObject<BlockTableRecord>(transaction, blockTable[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
-
-      using var xrefRef = new BlockReference(new Point3d(x, y, z), xrefBtrId)
-      {
-        ScaleFactors = new Scale3d(scale, scale, scale),
-        Rotation = rotation,
-      };
-
-      if (!string.IsNullOrWhiteSpace(layerName))
-      {
-        var layerId = LookupUtils.GetLayerId(database, transaction, layerName);
-        xrefRef.LayerId = layerId;
-      }
-
-      var xrefRefId = modelSpace.AppendEntity(xrefRef);
-      transaction.AddNewlyCreatedDBObject(xrefRef, true);
-
-      var xrefBtr = CivilObjectUtils.GetRequiredObject<BlockTableRecord>(transaction, xrefBtrId, OpenMode.ForRead);
-
-      return new Dictionary<string, object?>
-      {
-        ["handle"] = CivilObjectUtils.GetHandle(xrefRef),
-        ["xrefName"] = xrefBtr.Name,
-        ["filePath"] = filePath,
-        ["overlay"] = overlay,
-        ["x"] = xrefRef.Position.X,
-        ["y"] = xrefRef.Position.Y,
-        ["z"] = xrefRef.Position.Z,
-        ["layer"] = xrefRef.Layer,
-        ["xrefId"] = xrefRefId.Handle.ToString(),
-      };
-    });
-  }
-
   /// <summary>Read-only layer table dump (name, ACI color, linetype, frozen/off/locked/plot, xref-dependent). The plugin could not
   /// read layer state before, which forced a Core Console dump of the SAVED file just to know whether C-TINN-BNDY is frozen.</summary>
   public static Task<object?> ListLayersAsync(JsonObject? parameters)

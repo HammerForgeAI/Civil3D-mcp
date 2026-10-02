@@ -62,7 +62,6 @@ public static class CommandDispatcher
       "eraseEntities" => AcadCommands.EraseEntitiesAsync(parameters),
       "createLineSegment" => AcadCommands.CreateLineSegmentAsync(parameters),
       "insertBlockReference" => AcadCommands.InsertBlockReferenceAsync(parameters),
-      "attachXref" => LayerXrefCommands.AttachXrefAsync(parameters),
       "listLayers" => LayerXrefCommands.ListLayersAsync(parameters),
       "createOrUpdateLayer" => LayerXrefCommands.CreateOrUpdateLayerAsync(parameters),
       "purgeUnused" => PurgeAuditCommands.PurgeUnusedAsync(parameters),

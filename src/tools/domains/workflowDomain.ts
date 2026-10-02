@@ -599,6 +599,7 @@ export const WORKFLOW_DOMAIN_DEFINITION: DomainToolDefinition = {
         "saveDrawing",
         "listOpenDocuments",
         "attachXref",
+        "overlayXref",
         "createAlignment",
         "insertBlockReference",
         "createEntities",

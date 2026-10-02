@@ -4,6 +4,30 @@
 
 ### Fixed
 
+- The C# plugin did not compile, so no build since the upstream merges produced
+  a usable DLL. `CommandDispatcher` bound the plugin command `attachXref` twice:
+  once to `LayerXrefCommands.AttachXrefAsync` (from one merged pull request:
+  `filePath`, `overlay`, `xrefName`, `x`, `y`, `z`) and once to
+  `XrefCommands.AttachXrefAsync` (from another: `path`, `name`, `insert`,
+  `insertionPoint`). C# rejects the second arm as unreachable (CS8510), and the
+  two TypeScript surfaces that send `attachXref` speak incompatible argument
+  shapes, so one of them could never have worked on the wire. One hardened
+  implementation now owns the command: `LayerXrefCommands.AttachXrefAsync` is
+  deleted, and the legacy shape — the `acad_attach_xref` tool, the
+  `civil3d_geometry` action `attach_xref`, and the FASE 1 build spec — is
+  translated in TypeScript by the new `src/tools/domains/xrefParams.ts`.
+  `overlay: true` (still the default, this firm's standard) now selects the
+  plugin's `overlayXref` command, and `overlay: false` selects `attachXref`.
+  Every xref import therefore passes `FileBoundary.ResolveImportPath` (inside
+  `CIVIL3D_IMPORT_ROOTS`, `.dwg` only, must exist), which the legacy path never
+  checked. `rotation` is now degrees, matching `civil3d_xref`; the deleted
+  legacy path passed it to `BlockReference.Rotation` as radians.
+- `CivilExecution.ExecuteCommandSequenceAsync` called the host gate with a
+  zero-argument lambda, but `ExecuteSerializedAsync` takes
+  `Func<CancellationToken, Task<T>>`, so `T` could not be inferred (CS0411).
+  It now accepts the token the gate already supplies, like the other two
+  callers, instead of re-reading the same request `AsyncLocal` inside the body.
+
 - Style lookups by name never matched on Civil 3D 2027, so a requested style
   was silently replaced by the drawing's first one: `create_layout` with style
   "Design Profile" got "Existing Ground Profile", and `view_create` with style
