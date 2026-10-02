@@ -6,7 +6,7 @@ using CoreApp = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 
 namespace Civil3DMcpPlugin;
 
-public static class CivilExecution
+public static partial class CivilExecution
 {
   private static readonly SemaphoreSlim HostExecutionGate = new(1, 1);
 
