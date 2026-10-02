@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { withApplicationConnection } from "../../utils/ConnectionManager.js";
+import {
+  DEFAULT_INSTANCE_LABEL,
+  getActiveTarget,
+  listInstances,
+  probeApplicationTarget,
+  resolveApplicationTarget,
+  selectApplicationTarget,
+  withApplicationConnection,
+  type ApplicationTarget,
+} from "../../utils/ConnectionManager.js";
 import type { DomainToolDefinition } from "../domainRuntime.js";
 
 const DrawingInfoResponseSchema = z.object({ fileName: z.string().optional(), filePath: z.string().optional(), coordinateSystem: z.string().nullable().optional(), linearUnits: z.enum(["feet", "meters", "other"]).optional(), lengthUnit: z.string().nullable().optional(), angularUnits: z.enum(["degrees", "radians", "grads"]).optional(), unsavedChanges: z.boolean().optional(), objectCounts: z.object({ surfaces: z.number().optional(), alignments: z.number().optional(), profiles: z.number().optional(), corridors: z.number().optional(), pipeNetworks: z.number().optional(), points: z.number().optional(), parcels: z.number().optional() }).optional(), drawingName: z.string().optional(), projectName: z.string().nullable().optional(), units: z.string().optional() });
@@ -58,6 +67,90 @@ const SetSystemVariableArgs = z.object({ action: z.literal("set_system_variable"
 const SystemVariableResponseSchema = z.object({ name: z.string().optional(), value: z.any().optional(), previousValue: z.any().optional(), type: z.string().optional(), writable: z.boolean().optional(), changed: z.boolean().optional(), regenerated: z.boolean().optional() });
 const OpenDocumentsResponseSchema =z.object({ documents: z.array(z.object({ name: z.string().optional(), filePath: z.string().nullable().optional(), isActive: z.boolean().optional() })).optional() });
 
+/**
+ * P11 item 16 (raw command passthrough) and item 1 (gated C# script host).
+ * Both carry a mutating capability and safeForRetry=false, so the approval
+ * policy classifies them exactly like every other mutating action and refuses
+ * to execute them without an approval token. Both forward the token to the
+ * plugin, which refuses the call again if the token is missing.
+ */
+const SendCommandArgs = z.object({
+  action: z.literal("send_command"),
+  command: z.string().min(1).max(512),
+  arguments: z.array(z.string().min(1).max(512)).min(1).max(40).optional(),
+  approvalToken: z.string().min(1).optional(),
+});
+const ExecuteScriptArgs = z.object({
+  action: z.literal("execute_script"),
+  code: z.string().min(1).max(20000),
+  timeoutSeconds: z.number().int().min(1).max(120).optional(),
+  approvalToken: z.string().min(1).optional(),
+});
+const ScriptHostResponseSchema = z.object({
+  returned: z.boolean(),
+  value: z.unknown().optional(),
+  returnType: z.string().nullable().optional(),
+  isScalar: z.boolean().optional(),
+}).passthrough();
+
+/** P11 item 21: the instance selection surface. */
+const InstanceTargetSchema = z.object({
+  label: z.string(),
+  host: z.string(),
+  port: z.number().int(),
+  isDefault: z.boolean().optional(),
+});
+const InstanceListingSchema = InstanceTargetSchema.extend({
+  connected: z.boolean().nullable(),
+  active: z.boolean(),
+  instanceId: z.string().optional(),
+  processId: z.number().optional(),
+  listenerPort: z.number().optional(),
+  pluginVersion: z.string().optional(),
+  drawingLoaded: z.boolean().optional(),
+  error: z.string().optional(),
+});
+const InstanceListResponseSchema = z.object({
+  active: InstanceTargetSchema,
+  instances: z.array(InstanceListingSchema),
+});
+const SelectInstanceResponseSchema = z.object({
+  active: InstanceTargetSchema,
+  connected: z.boolean(),
+  instanceId: z.string().optional(),
+  listenerPort: z.number().optional(),
+});
+const ListInstancesArgs = z.object({ action: z.literal("list_instances"), probe: z.boolean().optional() });
+const SelectInstanceArgs = z.object({
+  action: z.literal("select_instance"),
+  instance: z.string().min(1).optional(),
+  host: z.string().min(1).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+});
+
+/**
+ * Turns the select_instance selector into a target. A label from
+ * list_instances wins; host + port names an instance that is not configured;
+ * neither resets the selection to the CIVIL3D_HOST / CIVIL3D_PORT default.
+ */
+function resolveInstanceSelector(args: { instance?: string; host?: string; port?: number }): ApplicationTarget {
+  if (args.host !== undefined || args.port !== undefined) {
+    if (!args.host || args.port === undefined) {
+      throw new Error("select_instance needs both 'host' and 'port', or an 'instance' label from list_instances.");
+    }
+
+    return { label: `${args.host}:${args.port}`, host: args.host, port: args.port, isDefault: false };
+  }
+
+  const label = args.instance?.trim() || DEFAULT_INSTANCE_LABEL;
+  const target = resolveApplicationTarget(label);
+  if (!target) {
+    throw new Error(`Unknown Civil 3D instance '${label}'. Call list_instances for the configured labels.`);
+  }
+
+  return target;
+}
+
 export const DRAWING_RUNTIME_DOMAIN_DEFINITION: DomainToolDefinition = {
   domain: "drawing",
   actions: {
@@ -74,9 +167,38 @@ export const DRAWING_RUNTIME_DOMAIN_DEFINITION: DomainToolDefinition = {
     set_active_document: { action: "set_active_document", inputSchema: SetActiveDocumentArgs, responseSchema: GenericResponseSchema, capabilities: ["manage"], requiresActiveDrawing: false, safeForRetry: false, pluginMethods: ["setActiveDocument"], execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("setActiveDocument", { match: args.match })) },
     get_system_variable: { action: "get_system_variable", inputSchema: GetSystemVariableArgs, responseSchema: SystemVariableResponseSchema, capabilities: ["query", "inspect"], requiresActiveDrawing: false, safeForRetry: true, pluginMethods: ["getSystemVariable"], execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("getSystemVariable", { name: args.name })) },
     set_system_variable: { action: "set_system_variable", inputSchema: SetSystemVariableArgs, responseSchema: SystemVariableResponseSchema, capabilities: ["manage"], requiresActiveDrawing: false, safeForRetry: false, pluginMethods: ["setSystemVariable"], execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("setSystemVariable", { name: args.name, value: args.value, regen: args.regen ?? false })) },
+    send_command: { action: "send_command", inputSchema: SendCommandArgs, responseSchema: GenericResponseSchema, capabilities: ["edit", "manage"], requiresActiveDrawing: true, safeForRetry: false, pluginMethods: ["sendCommand"], execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("sendCommand", { command: args.command, arguments: args.arguments, approvalToken: args.approvalToken })) },
+    execute_script: { action: "execute_script", inputSchema: ExecuteScriptArgs, responseSchema: ScriptHostResponseSchema, capabilities: ["edit", "delete", "manage"], requiresActiveDrawing: true, safeForRetry: false, pluginMethods: ["executeCSharpScript"], execute: async (args) => await withApplicationConnection(async (appClient) => await appClient.sendCommand("executeCSharpScript", { code: args.code, timeoutSeconds: args.timeoutSeconds, approvalToken: args.approvalToken })) },
+    list_instances: { action: "list_instances", inputSchema: ListInstancesArgs, responseSchema: InstanceListResponseSchema, capabilities: ["query", "inspect"], requiresActiveDrawing: false, safeForRetry: true, pluginMethods: ["getListenerInstance"], execute: async (args) => ({ active: getActiveTarget(), instances: await listInstances(Boolean(args.probe ?? true)) }) },
+    select_instance: {
+      action: "select_instance",
+      inputSchema: SelectInstanceArgs,
+      responseSchema: SelectInstanceResponseSchema,
+      capabilities: ["manage"],
+      requiresActiveDrawing: false,
+      safeForRetry: false,
+      execute: async (args) => {
+        const requested = resolveInstanceSelector(args);
+        const listing = await probeApplicationTarget(requested);
+        if (!listing.connected) {
+          throw new Error(
+            `Civil 3D instance '${requested.label}' at ${requested.host}:${requested.port} did not answer (${listing.error ?? "no response"}). ` +
+            "The active instance was not changed; call list_instances to see which instances answer.",
+          );
+        }
+
+        selectApplicationTarget(requested);
+        return {
+          active: getActiveTarget(),
+          connected: true,
+          instanceId: listing.instanceId,
+          listenerPort: listing.listenerPort,
+        };
+      },
+    },
   },
   exposures: [
-    { toolName: "civil3d_drawing", displayName: "Civil 3D Drawing", description: "Reads drawing state, settings, units (INSUNITS and Civil 3D unit settings, distinguishing US survey feet from international feet), system variables, selection context, and document operations through a single domain tool.", inputShape: { action: z.enum(["info", "new", "save", "undo", "redo", "settings", "units", "selected_objects_info", "list_object_types", "list_open_documents", "set_active_document", "get_system_variable", "set_system_variable"]), templatePath: z.string().optional(), saveAs: z.string().optional(), overwrite: z.boolean().optional(), steps: z.number().int().min(1).max(10).optional(), limit: z.number().optional(), match: z.string().optional(), name: z.string().optional(), value: z.union([z.number(), z.string(), z.boolean()]).optional(), regen: z.boolean().optional() }, supportedActions: ["info", "new", "save", "undo", "redo", "settings", "units", "selected_objects_info", "list_object_types", "list_open_documents", "set_active_document", "get_system_variable", "set_system_variable"], resolveAction: (rawArgs) => ({ action: String(rawArgs.action ?? ""), args: rawArgs }) },
+    { toolName: "civil3d_drawing", displayName: "Civil 3D Drawing", description: "Reads drawing state, settings, units (INSUNITS and Civil 3D unit settings, distinguishing US survey feet from international feet), system variables, selection context, and document operations through a single domain tool. Escape hatches: send_command runs one raw AutoCAD command line in the active drawing (file, code-loading, dialog and system-variable commands are refused so FileBoundary and the set_system_variable allowlist are never bypassed); execute_script runs C# in-process through the gated Roslyn host, with the document, database, transaction and editor exposed as Document/CivilDoc/Database/Transaction/Editor. Both mutate the drawing, so both need an approval token from civil3d_request_approval, exactly like any other mutating action. list_instances reports every configured Civil 3D instance (CIVIL3D_INSTANCES, plus the CIVIL3D_HOST/CIVIL3D_PORT default) and whether it answers; select_instance routes later calls to one of them.", inputShape: { action: z.enum(["info", "new", "save", "undo", "redo", "settings", "units", "selected_objects_info", "list_object_types", "list_open_documents", "set_active_document", "get_system_variable", "set_system_variable", "send_command", "execute_script", "list_instances", "select_instance"]), templatePath: z.string().optional(), saveAs: z.string().optional(), overwrite: z.boolean().optional(), steps: z.number().int().min(1).max(10).optional(), limit: z.number().optional(), match: z.string().optional(), name: z.string().optional(), value: z.union([z.number(), z.string(), z.boolean()]).optional(), regen: z.boolean().optional(), command: z.string().min(1).max(512).optional(), arguments: z.array(z.string().min(1).max(512)).min(1).max(40).optional(), code: z.string().min(1).max(20000).optional(), timeoutSeconds: z.number().int().min(1).max(120).optional(), probe: z.boolean().optional(), instance: z.string().min(1).optional(), host: z.string().min(1).optional(), port: z.number().int().min(1).max(65535).optional() }, supportedActions: ["info", "new", "save", "undo", "redo", "settings", "units", "selected_objects_info", "list_object_types", "list_open_documents", "set_active_document", "get_system_variable", "set_system_variable", "send_command", "execute_script", "list_instances", "select_instance"], resolveAction: (rawArgs) => ({ action: String(rawArgs.action ?? ""), args: rawArgs }) },
     { toolName: "get_drawing_info", displayName: "Get Drawing Info", description: "Retrieves basic information about the active Civil 3D drawing.", inputShape: {}, supportedActions: ["info"], resolveAction: () => ({ action: "info", args: { action: "info" } }) },
     { toolName: "get_selected_civil_objects_info", displayName: "Get Selected Civil Objects Info", description: "Gets basic properties of currently selected Civil 3D objects.", inputShape: { limit: z.number().optional() }, supportedActions: ["selected_objects_info"], resolveAction: (rawArgs) => ({ action: "selected_objects_info", args: { action: "selected_objects_info", ...rawArgs } }) },
     { toolName: "list_civil_object_types", displayName: "List Civil Object Types", description: "Lists major Civil 3D object types available in the current context.", inputShape: {}, supportedActions: ["list_object_types"], resolveAction: () => ({ action: "list_object_types", args: { action: "list_object_types" } }) },

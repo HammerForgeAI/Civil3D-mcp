@@ -4,6 +4,22 @@
 
 ### Added
 
+- Escape hatches and multi-instance selection (items 1, 16 and 21).
+  `civil3d_drawing` gains `send_command`, a mutating action with
+  `safeForRetry: false`, which needs an approval token like any other mutation.
+  The plugin requires the token a second time and refuses file, code, dialog and
+  system-variable commands and any file-naming token, so `FileBoundary` is not
+  bypassed. `execute_script` runs C# through Roslyn:
+  `Microsoft.CodeAnalysis.CSharp.Scripting` 4.12.0 is the plugin's first
+  `PackageReference`, and `CopyLocalLockFileAssemblies=true` deploys the Roslyn
+  assemblies into the plugin output. `AppDomain.CurrentDomain.GetAssemblies`
+  appears only inside `Civil3DCompatibility.GetLoadedScriptReferenceAssemblies`,
+  so the reflection-boundary test still passes.
+  `CIVIL3D_APPROVAL_MODE=disabled` does not unlock the escape hatches: the plugin
+  refuses them on its own. `withApplicationConnection` now takes an optional
+  target that defaults to today's host and port, so every existing call site is
+  unchanged, and `list_instances` and `select_instance` choose between plugin
+  listeners; each listener reports itself through `getListenerInstance`.
 - `civil3d_survey` gains `fbk_parse` (also `civil3d_survey_fbk_parse`), ported
   from KevinGriffin's field-book parser: NEZ points, setups, backsights and
   azimuths, F1/F2 observations with target height, the field-book structure,

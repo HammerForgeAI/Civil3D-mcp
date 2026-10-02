@@ -394,6 +394,12 @@ public static class CommandDispatcher
       // P4: survey field book (.fbk) parser. Parser only -- the AutoCAD IMPORTFIELDBOOK command and
       // the Survey COM interop are deliberately not exposed anywhere in this plugin; see FbkCommands.cs.
       "parseFbk" => FbkCommands.ParseFbkAsync(parameters),
+      // P11 escape hatches and instance selection (arms appended for this package).
+      // sendCommand and executeCSharpScript are approval-gated in the MCP server
+      // and require the approval token again inside the plugin.
+      "sendCommand" => RawCommandCommands.SendCommandAsync(parameters),
+      "executeCSharpScript" => ScriptHostCommands.ExecuteCSharpScriptAsync(parameters),
+      "getListenerInstance" => Task.FromResult<object?>(ListenerInstance.Describe()),
       _ => throw new JsonRpcDispatchException("CIVIL3D.METHOD_NOT_FOUND", $"Plugin method '{method}' is not implemented yet."),
     };
   }
