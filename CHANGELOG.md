@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- `civil3d_standards` can create styles as well as list them:
+  `style_create_point`, `style_create_point_label`, `style_create_line_label`
+  and `style_set_text_font`, ported from KevinGriffin's bridge
+  (`CreatePointStyle`, `CreatePointLabelStyle`, `CreateLineLabelStyle`,
+  `SetTextStyleFont`). A style name that already exists is refused with
+  `CIVIL3D.CONFLICT`, because Civil 3D would otherwise silently rename the new
+  style to `" (1)"`. This is item 3 of the community port. The pre-existing
+  duplicate `civil3d_style` surface is unchanged.
+
 ### Fixed
 
 - The C# plugin did not compile, so no build since the upstream merges produced
