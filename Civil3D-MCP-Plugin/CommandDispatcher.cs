@@ -357,6 +357,12 @@ public static class CommandDispatcher
       "importStm" => StmCommands.ImportStmAsync(parameters),
       "openStormSanitaryAnalysis" => StmCommands.OpenStormSanitaryAnalysisAsync(parameters),
       "listSsaCapabilities" => StmCommands.ListSsaCapabilitiesAsync(),
+      // P6 — plan production view frames and match lines (read-only listers)
+      "listViewFrames" => FrameMatchLineCommands.ListViewFramesAsync(parameters),
+      "listMatchLines" => FrameMatchLineCommands.ListMatchLinesAsync(parameters),
+      // P6 — legend domain read plus the civil3d_qc check_legend backend
+      "readLegendTable" => LegendCommands.ReadLegendTableAsync(parameters),
+      "qcCheckLegend" => LegendCommands.QcCheckLegendAsync(parameters),
       _ => throw new JsonRpcDispatchException("CIVIL3D.METHOD_NOT_FOUND", $"Plugin method '{method}' is not implemented yet."),
     };
   }
