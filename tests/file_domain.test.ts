@@ -223,7 +223,9 @@ describe("civil3d_file manifest registration", () => {
   it("appends the definition to the migrated domain list exactly once", () => {
     const matches = MIGRATED_DOMAIN_DEFINITIONS.filter((definition) => definition === FILE_DOMAIN_DEFINITION);
     expect(matches).toHaveLength(1);
-    expect(MIGRATED_DOMAIN_DEFINITIONS[MIGRATED_DOMAIN_DEFINITIONS.length - 1]).toBe(FILE_DOMAIN_DEFINITION);
+    // Position is not the contract: later packages append after this one, so
+    // assert the entry exists rather than that it is last.
+    expect(MIGRATED_DOMAIN_DEFINITIONS).toContain(FILE_DOMAIN_DEFINITION);
   });
 
   it("registers one catalog entry exposing every action", () => {
