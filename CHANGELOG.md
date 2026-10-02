@@ -4,6 +4,19 @@
 
 ### Added
 
+- New `civil3d_file` domain: `read_docx`, `read_xlsx`, `read_pptx`, `read_zip`
+  (entry listing plus one text entry), and the legacy `read_doc` and `read_xls`
+  through an OLE2/CFB and BIFF8 reader, ported from Jjo37's file-format readers.
+  Nothing is extracted to disk, so zip-slip has no path to build; the caps are
+  2000 zip entries, 32 MiB per decompressed entry, 64 MiB total decompressed,
+  64 MiB per file, 1 MiB per zip text entry, 8000 returned characters and 50
+  rows. Each reader passes `FileBoundary.ResolveImportPath` with its own
+  extension allow-list, so `.doc` can never bind to the `.docx` action. Also
+  `attach_raster_image`, ported from KevinGriffin, which attaches a `.png`,
+  `.jpg`, `.jpeg`, `.tif`, `.tiff` or `.bmp` at an insertion point with width,
+  rotation and layer, keeping the source aspect ratio. **The readers compile but
+  have never been run against a real file or drawing.** These are items 5 and 17
+  of the community port.
 - `civil3d_quantity_takeoff` can export a bill of quantities to `.xlsx`
   (`export_to_xlsx`): one `BOQ` sheet, a header row, fixed column widths and a
   `#,##0.000` amount format, built in TypeScript from the existing takeoff
