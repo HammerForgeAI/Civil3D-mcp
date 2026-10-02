@@ -2,7 +2,7 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 248
+- Catalog entries: 249
 - Domains: 32
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
@@ -195,12 +195,13 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_qty_alignment_lengths` | quantity_takeoff | — | qtyAlignmentLengths | yes |
 | `civil3d_qty_earthwork_summary` | quantity_takeoff | — | qtyEarthworkSummary | yes |
 | `civil3d_qty_export_to_csv` | quantity_takeoff | — | qtyExportToCsv | no |
+| `civil3d_qty_export_to_xlsx` | quantity_takeoff | — | qtySurfaceVolume, qtyAlignmentLengths, qtyPipeNetworkLengths, qtyPressureNetworkLengths, qtyParcelAreas, qtyPointCountByGroup | no |
 | `civil3d_qty_parcel_areas` | quantity_takeoff | — | qtyParcelAreas | yes |
 | `civil3d_qty_pipe_network_lengths` | quantity_takeoff | — | qtyPipeNetworkLengths | yes |
 | `civil3d_qty_point_count_by_group` | quantity_takeoff | — | qtyPointCountByGroup | yes |
 | `civil3d_qty_pressure_network_lengths` | quantity_takeoff | — | qtyPressureNetworkLengths | yes |
 | `civil3d_qty_surface_volume` | quantity_takeoff | — | qtySurfaceVolume | yes |
-| `civil3d_quantity_takeoff` | quantity_takeoff | surface_volume, pipe_network_lengths, pressure_network_lengths, parcel_areas, alignment_lengths, point_count_by_group, export_to_csv, earthwork_summary | qtySurfaceVolume, qtyPipeNetworkLengths, qtyPressureNetworkLengths, qtyParcelAreas, qtyAlignmentLengths, qtyPointCountByGroup, qtyExportToCsv, qtyEarthworkSummary | no |
+| `civil3d_quantity_takeoff` | quantity_takeoff | surface_volume, pipe_network_lengths, pressure_network_lengths, parcel_areas, alignment_lengths, point_count_by_group, export_to_csv, export_to_xlsx, earthwork_summary | qtySurfaceVolume, qtyPipeNetworkLengths, qtyPressureNetworkLengths, qtyParcelAreas, qtyAlignmentLengths, qtyPointCountByGroup, qtyExportToCsv, qtyEarthworkSummary | no |
 | `civil3d_section` | section | list_sample_lines, get_section_data, create_sample_lines, view_create, view_list, view_update_style, view_group_create, view_export | listSampleLineGroups, getSectionData, createSampleLines, createSectionViews, listSectionViews, updateSectionViewStyles, createSectionViewGroup, exportSectionData | no |
 | `civil3d_section_view_create` | section | — | createSectionViews | no |
 | `civil3d_section_view_export` | section | — | exportSectionData | no |

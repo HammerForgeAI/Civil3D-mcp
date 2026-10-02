@@ -4,6 +4,18 @@
 
 ### Added
 
+- `civil3d_quantity_takeoff` can export a bill of quantities to `.xlsx`
+  (`export_to_xlsx`): one `BOQ` sheet, a header row, fixed column widths and a
+  `#,##0.000` amount format, built in TypeScript from the existing takeoff
+  commands (`qtySurfaceVolume`, `qtyAlignmentLengths`, `qtyPipeNetworkLengths`,
+  `qtyPressureNetworkLengths`, `qtyParcelAreas`, `qtyPointCountByGroup`). Ported
+  from DaniGhosy's ExcelJS quantity domain. A missing collection or a non-number
+  fails loudly; no zero is substituted. The write goes through one shared
+  export-path helper that repeats the plugin's export-root, extension, symlink
+  and overwrite rules with the plugin's error codes, and it is weaker than the
+  plugin's own writer in two ways: no directory-chain lock and no
+  single-hard-link re-check. New npm dependency: `exceljs` (MIT). This is item 15
+  of the community port.
 - `civil3d_standards` can create styles as well as list them:
   `style_create_point`, `style_create_point_label`, `style_create_line_label`
   and `style_set_text_font`, ported from KevinGriffin's bridge
