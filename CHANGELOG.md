@@ -4,6 +4,25 @@
 
 ### Added
 
+- `civil3d_geometry` gains block intelligence, shape detection and hatch
+  creation, ported from DaniGhosy's block and shape commands and Jjo37's hatch
+  command: `list_block_definitions`, `count_blocks_by_name`,
+  `detect_parallel_line_pairs`, `group_entities_by_proximity`,
+  `get_entity_extended_data`, `classify_geometry_by_signature` (TypeScript only,
+  no plugin call) and `create_hatch`, each with a legacy single-action exposure.
+  The donor's block attributes, per-layer grouping, insertion points and dynamic
+  states, and its `importHatches` and `editHatch`, are not ported: this package
+  adds definitions, counts and creation only. Items 12, 13 and 18.
+- The approval layer keeps an inspect-only default: a read-only run needs no
+  approval, while every mutating action still passes through the existing token
+  flow, and a test proves that flow is not weakened. A new audit-history
+  resource, `civil3d://audit/history`, is ported from Venkatchavan/OpenAEC-MCP
+  (Apache-2.0). `PluginRuntime` publishes per-stage telemetry — the `queued` wait
+  and the `host-execution` stage, each with name, start, duration and a
+  `running`/`completed`/`stalled` verdict — because `CivilExecution` exposes no
+  named pipeline stages. Operation, request id, start time, queue depth,
+  capacity and `currentOperationDurationMs` already shipped and are not
+  re-published. Items 22 and 29.
 - New `civil3d_object` domain for generic Civil 3D object introspection:
   `list_types` (the types present in the drawing, with counts), `get_properties`,
   `list_properties`, `set_properties` and `find_by_property`. The donor's raw

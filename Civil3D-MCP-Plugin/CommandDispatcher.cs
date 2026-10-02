@@ -8,7 +8,7 @@ public static class CommandDispatcher
   {
   return method switch
   {
-      "getCivil3DHealth" => DrawingCommands.GetCivil3DHealthAsync(),
+      "getCivil3DHealth" => StageTelemetryCommands.GetCivil3DHealthWithStagesAsync(),
       "getDrawingInfo" => DrawingCommands.GetDrawingInfoAsync(),
       "getProjectContext" => DrawingCommands.GetProjectContextAsync(parameters),
       "getDrawingSettings" => DrawingCommands.GetDrawingSettingsAsync(),
@@ -389,6 +389,8 @@ public static class CommandDispatcher
       "groupEntitiesByProximity" => ShapeDetectionCommands.GroupEntitiesByProximityAsync(parameters),
       "getEntityExtendedData" => ShapeDetectionCommands.GetEntityExtendedDataAsync(parameters),
       "createHatch" => HatchCommands.CreateHatchAsync(parameters),
+      // P8 (item 29): per-stage telemetry for the health surface.
+      "getCivil3DStageTelemetry" => StageTelemetryCommands.GetStageTelemetryAsync(),
       _ => throw new JsonRpcDispatchException("CIVIL3D.METHOD_NOT_FOUND", $"Plugin method '{method}' is not implemented yet."),
     };
   }

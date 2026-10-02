@@ -18,6 +18,21 @@ const HealthResponseSchema = z.object({
   logFilePath: z.string(),
   fileLoggingHealthy: z.boolean(),
   fileLoggingError: z.string().nullable(),
+  // Item 29 (P8): per-stage timing the queue/job fields above do not carry.
+  // Optional so a plugin build without stage telemetry still answers health.
+  stageTelemetry: z.object({
+    currentStage: z.string().nullable(),
+    currentStageStartedAtUnixMs: z.number().nullable(),
+    currentStageDurationMs: z.number().nullable(),
+    currentStageState: z.enum(["running", "completed", "stalled"]).nullable(),
+    stallThresholdMs: z.number(),
+    stages: z.array(z.object({
+      name: z.string(),
+      startedAtUnixMs: z.number(),
+      durationMs: z.number(),
+      state: z.enum(["running", "completed", "stalled"]),
+    })),
+  }).optional(),
   jobs: z.object({
     total: z.number(),
     running: z.number(),

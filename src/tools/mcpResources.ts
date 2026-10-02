@@ -3,6 +3,12 @@ import { lookupFrameworkStandards } from "../standards/FrameworkStandardsService
 import { MIGRATED_DOMAIN_DEFINITIONS, selectManifestExposures } from "./toolManifest.js";
 import { TOOL_CATALOG } from "./tool_catalog.js";
 import { getReportResource, listReportResources } from "./reportResourceStore.js";
+import {
+  APPROVAL_AUDIT_LIST_LIMIT,
+  MAX_APPROVAL_AUDIT_EVENTS,
+  getApprovalPosture,
+  listApprovalAuditEvents,
+} from "./approvalPolicy.js";
 
 const SAFETY_GUIDANCE = `# Civil 3D MCP safety and execution
 
@@ -10,11 +16,13 @@ All drawing work follows one authoritative path:
 
 MCP or HTTP caller -> schema validation -> approval policy -> host queue -> Civil 3D execution -> structured result
 
+- The approval posture defaults to inspect-only (CIVIL3D_APPROVAL_MODE unset): a read-only run needs no approval, and every mutating action still passes through the approval-token flow. Only an explicit CIVIL3D_APPROVAL_MODE=disabled widens that posture.
 - Query and inspection actions are read-only and retry-safe when their tool annotations say so.
 - Destructive or ambiguous actions require preview and a short-lived, drawing-bound approval token.
 - A known ordered sequence can be approved in one call with civil3d_request_plan_approval: one token per step, bound to the active document (not its contents), executed in order with exact parameters.
 - Drawing mutations execute in the Civil 3D host under command context, document lock, and a narrow transaction.
 - The Node MCP layer plans, validates, brokers, and reports results; it does not mutate drawings directly.
+- Every approval decision is recorded, without the parameter values, in civil3d://audit/history: the tool, action, posture, decision, an input hash, the duration, and the outcome.
 `;
 
 export function registerMcpResources(server: McpServer): void {
@@ -107,6 +115,30 @@ export function registerMcpResources(server: McpServer): void {
           uri: uri.href,
           mimeType: "application/json",
           text: report.text,
+        }],
+      };
+    },
+  );
+
+  server.registerResource(
+    "civil3d-approval-audit",
+    "civil3d://audit/history",
+    {
+      title: "Civil 3D Approval Audit History",
+      description: "Bounded, redacted approval decisions: the tool, action, posture, decision, input hash, duration, and outcome.",
+      mimeType: "application/json",
+    },
+    async (uri) => {
+      const events = listApprovalAuditEvents(APPROVAL_AUDIT_LIST_LIMIT);
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: "application/json",
+          text: JSON.stringify({
+            posture: getApprovalPosture(),
+            retention: { maxEvents: MAX_APPROVAL_AUDIT_EVENTS, returnedEvents: events.length },
+            events,
+          }, null, 2),
         }],
       };
     },
