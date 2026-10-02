@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { approvalPolicy, isApprovalRequired } from "./approvalPolicy.js";
+import { approvalPolicy, getApprovalPosture, isApprovalRequired } from "./approvalPolicy.js";
 import { captureToolHandler } from "./toolHandlerRegistry.js";
 import { findManifestAction } from "./toolManifest.js";
 
@@ -42,6 +42,9 @@ const PreviewResponseSchema = z.object({
   action: z.string(),
   capabilities: z.array(z.string()),
   safeForRetry: z.boolean(),
+  operatingMode: z.enum(["inspect-only", "disabled"]),
+  inspectOnly: z.boolean(),
+  mutatingActionsRequireApprovalToken: z.boolean(),
   instruction: z.string(),
 });
 
@@ -95,22 +98,26 @@ export function registerApprovalTool(server: McpServer) {
     try {
       const args = rawArgs as { toolName: string; action: string; parameters: JsonObject };
       const target = resolveApprovalTarget(args);
+      const posture = getApprovalPosture();
       const requiresApproval = isApprovalRequired({
         toolName: args.toolName,
         action: args.action,
         capabilities: target.actionDefinition.capabilities,
         safeForRetry: target.actionDefinition.safeForRetry,
         requiresActiveDrawing: target.actionDefinition.requiresActiveDrawing,
-      });
+      }, posture.operatingMode);
       return successResult({
         status: requiresApproval ? "approval_required" : "ready",
         toolName: args.toolName,
         action: args.action,
         capabilities: target.actionDefinition.capabilities,
         safeForRetry: target.actionDefinition.safeForRetry,
+        operatingMode: posture.operatingMode,
+        inspectOnly: posture.inspectOnly,
+        mutatingActionsRequireApprovalToken: posture.mutatingActionsRequireApprovalToken,
         instruction: requiresApproval
           ? "Call civil3d_request_approval with the same toolName, action, and parameters before execution."
-          : "This action may be executed directly.",
+          : "This action is read-only and may be executed directly; the inspect-only default needs no approval for it.",
       });
     } catch (error) {
       return errorResult("civil3d_preview_action", error);
