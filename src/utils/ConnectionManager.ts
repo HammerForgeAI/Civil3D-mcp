@@ -13,6 +13,14 @@ export interface ApplicationCommandClient {
 }
 
 /**
+ * The configured plugin endpoint. Diagnostics and the environment preflight on
+ * `civil3d_health` report it; the defaults are the documented ones.
+ */
+export function getPluginEndpoint(): { host: string; port: number } {
+  return { host: CIVIL3D_HOST, port: CIVIL3D_PORT };
+}
+
+/**
  * Runs an operation against the Civil 3D plugin. The native transport accepts
  * exactly one JSON-RPC request per TCP connection, so every sendCommand call
  * receives its own short-lived connection. Composite domain actions may safely

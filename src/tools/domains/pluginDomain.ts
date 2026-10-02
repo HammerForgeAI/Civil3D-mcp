@@ -1,6 +1,29 @@
 import { z } from "zod";
-import { withApplicationConnection } from "../../utils/ConnectionManager.js";
+import { getPluginEndpoint, withApplicationConnection } from "../../utils/ConnectionManager.js";
+import {
+  collectEnvironmentPreflight,
+  probePluginRuntime,
+  probePort,
+} from "../../utils/environmentPreflight.js";
 import type { DomainToolDefinition } from "../domainRuntime.js";
+
+const EnvironmentCheckSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  status: z.enum(["ok", "warn", "fail"]),
+  value: z.string(),
+  detail: z.string().optional(),
+});
+
+const EnvironmentReportSchema = z.object({
+  status: z.enum(["ok", "warn", "fail"]),
+  summary: z.object({
+    ok: z.number(),
+    warn: z.number(),
+    fail: z.number(),
+  }),
+  checks: z.array(EnvironmentCheckSchema),
+});
 
 const HealthResponseSchema = z.object({
   connected: z.boolean(),
@@ -27,6 +50,8 @@ const HealthResponseSchema = z.object({
     capacity: z.number(),
     terminalRetentionMinutes: z.number(),
   }),
+  /** Environment preflight. Optional, so a payload without it still validates. */
+  environment: EnvironmentReportSchema.optional(),
 });
 
 export const PLUGIN_DOMAIN_DEFINITION: DomainToolDefinition = {
@@ -40,9 +65,27 @@ export const PLUGIN_DOMAIN_DEFINITION: DomainToolDefinition = {
       requiresActiveDrawing: false,
       safeForRetry: true,
       pluginMethods: ["getCivil3DHealth"],
-      execute: async () => await withApplicationConnection(
-        async (appClient) => await appClient.sendCommand("getCivil3DHealth", {}),
-      ),
+      // The health surface also carries a reduced environment preflight. It ships
+      // in the plugin payload, so it needs the plugin to have answered: an
+      // unreachable plugin still fails this tool with the same connection error
+      // it always raised, and the port observation is then discarded with it.
+      execute: async () => {
+        const endpoint = getPluginEndpoint();
+        const port = await probePort(endpoint.host, endpoint.port);
+        const probe = await withApplicationConnection(
+          async (appClient) => await probePluginRuntime(appClient),
+        );
+        if (probe.load !== "loaded" || probe.payload === null) {
+          throw probe.error ?? new Error("The Civil 3D plugin did not answer the health command.");
+        }
+        const environment = collectEnvironmentPreflight({
+          endpoint: `${endpoint.host}:${endpoint.port}`,
+          port,
+          load: probe.load,
+          pluginVersion: probe.pluginVersion,
+        });
+        return { ...probe.payload, environment };
+      },
     },
   },
   exposures: [
