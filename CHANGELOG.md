@@ -4,6 +4,35 @@
 
 ### Added
 
+- New `civil3d_plan_vision` domain for a PDF or scanned plan sheet when there is
+  no live drawing (item 9): `rasterize_pdf_page`, `extract_legend_templates`,
+  `train_symbol_template`, `detect_symbols_cv`, `ocr_extract_labels` and
+  `calibrate_scale_from_dimension`. It is the only domain that never opens a
+  plugin connection, so every action declares `requiresActiveDrawing: false`.
+  Five actions need the **optional** Python service under `plan-vision/`, whose
+  five packages are pinned in `plan-vision/requirements.txt`
+  (opencv-python 4.10.0.84, pytesseract 0.3.13, pymupdf 1.24.11, pillow 11.0.0,
+  numpy 2.1.3); Tesseract stays a system binary. The interpreter is only
+  `PLAN_VISION_PYTHON` or the platform default, never a silent fallback. Nothing
+  else depends on the service: one preflight checks Python 3.10 or later, the
+  five modules and Tesseract, and any failure gives one
+  `PLAN_VISION_SERVICE_NOT_CONFIGURED` error naming the interpreter and the fix,
+  while the MCP server still starts. Results are confidence-level detections over
+  pixels, not the exactness `civil3d_blocks` gives for real blocks.
+  **The Python path has never been executed** — the gates prove only that the
+  TypeScript compiles, the CLI failure is exact, and the degradation is correct.
+  `calibrate_scale_from_dimension` needs nothing installed.
+- Items 20 and 25 ship **no executable code**. Item 20 (SAC subassembly
+  authoring) is abandoned: the three assemblies it needs
+  (`Subassembly.WorkflowEngine`, `Subassembly.ActivityLibrary`,
+  `Subassembly.API`) exist nowhere on the build host, the donor names them by
+  absolute path inside a `net8.0-windows` project, and no NuGet package supplies
+  them, so `PktFileAccess.CreatePktFile(new PktStructure{...})` cannot compile and
+  the abandon rule fired; the reason, the exact signatures and the conditions to
+  reopen it are recorded in `docs/reference/P12-sac-subassembly-abandon.md`. Item
+  25 (a COM read path across Civil 3D 2023-2026) has no second Civil 3D version to
+  verify against, so only its design note ships, in
+  `docs/reference/P12-com-read-path-design.md`.
 - `civil3d_health` carries an optional `environment` report from a reduced
   preflight, ported from antonhofstader's Python environment checker (item 23)
   and cut down to what this fork actually depends on and can detect: the Node

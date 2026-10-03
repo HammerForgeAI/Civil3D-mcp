@@ -43,6 +43,7 @@ import { COMPARE_DOMAIN_DEFINITION } from "./domains/compareDomain.js";
 import { FILE_DOMAIN_DEFINITION } from "./domains/fileDomain.js";
 import { LEGEND_DOMAIN_DEFINITION } from "./domains/legendDomain.js";
 import { OBJECT_DOMAIN_DEFINITION } from "./domains/objectDomain.js";
+import { PLAN_VISION_DOMAIN_DEFINITION } from "./domains/planVisionDomain.js";
 import type { ToolCatalogEntry } from "./toolMetadata.js";
 
 export const MIGRATED_DOMAIN_DEFINITIONS = [
@@ -82,6 +83,9 @@ export const MIGRATED_DOMAIN_DEFINITIONS = [
   FILE_DOMAIN_DEFINITION,
   LEGEND_DOMAIN_DEFINITION,
   OBJECT_DOMAIN_DEFINITION,
+  // P12 item 9: the only domain that never opens a plugin connection. Five of its actions call the
+  // OPTIONAL Python service in plan-vision/; one is pure arithmetic. Nothing else depends on it.
+  PLAN_VISION_DOMAIN_DEFINITION,
 ];
 
 export const GENERATED_TOOL_CATALOG_ENTRIES: ToolCatalogEntry[] = MIGRATED_DOMAIN_DEFINITIONS.flatMap(

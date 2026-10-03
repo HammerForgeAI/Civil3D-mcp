@@ -39,7 +39,8 @@ export type ToolDomain =
   | "compare"
   | "file"
   | "legend"
-  | "object";
+  | "object"
+  | "plan_vision";
 
 export type ToolCapability =
   | "query"
