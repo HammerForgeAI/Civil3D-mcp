@@ -2,8 +2,8 @@
 
 Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 
-- Catalog entries: 260
-- Domains: 35
+- Catalog entries: 261
+- Domains: 36
 
 | Tool | Domain | Operations | Plugin methods | Safe retry |
 |---|---|---|---|---|
@@ -165,6 +165,7 @@ Generated from the runtime manifest for civil3d-mcp 1.2.1. Do not edit by hand.
 | `civil3d_sheet_set_title_block` | plan_production | — | setSheetTitleBlock | no |
 | `civil3d_sheet_view_create` | plan_production | — | createSheetView | no |
 | `civil3d_sheet_view_set_scale` | plan_production | — | setSheetViewScale | no |
+| `civil3d_plan_vision` | plan_vision | rasterize_pdf_page, extract_legend_templates, train_symbol_template, detect_symbols_cv, ocr_extract_labels, calibrate_scale_from_dimension | — | no |
 | `civil3d_plot` | plot | list_layouts, list_page_setups, list_plotters, plot_layouts_to_pdf, publish_sheet_set | plotListLayouts, plotListPageSetups, plotListPlotters, plotLayoutsToPdf, startJob, plotPublishSheetSet | no |
 | `civil3d_health` | plugin | — | getCivil3DHealth | yes |
 | `civil3d_point` | point | list, get, create, list_groups, import, delete, group_create, group_update, group_delete, export, transform | listCogoPoints, getCogoPoint, createCogoPoints, listPointGroups, importCogoPoints, deleteCogoPoints, createPointGroup, updatePointGroup, deletePointGroup, exportCogoPoints, transformCogoPoints | no |
