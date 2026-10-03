@@ -166,6 +166,14 @@
   `CIVIL3D.CONFLICT`, because Civil 3D would otherwise silently rename the new
   style to `" (1)"`. This is item 3 of the community port. The pre-existing
   duplicate `civil3d_style` surface is unchanged.
+- **Not ported**, after audit and an explicit decision: item 26 (a bilingual UI),
+  item 27 (a native approval dialog inside Civil 3D) and item 28 (a plugin-side
+  process supervisor). This fork has no user interface at all, so there is no
+  string surface to translate; approvals are already brokered in TypeScript, kept
+  in one path and rendered by the MCP client; and the MCP client already starts
+  the Node server, so a supervisor would put two starters on one helper and both
+  would contend for the plugin port. Each would have added a second path beside a
+  working one.
 
 ### Fixed
 
